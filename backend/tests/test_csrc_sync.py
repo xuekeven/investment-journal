@@ -1186,6 +1186,23 @@ def test_subscription_documents_include_amount_limit_titles() -> None:
     ]
 
 
+def test_subscription_documents_exclude_fund_manager_announcements() -> None:
+    html = """
+    <a name="section6"></a>
+    <div>募集信息</div>
+    <a href="instance_show_pdf_id.do?instanceid=1">本基金暂停申购公告</a>
+    <a name="section7"></a>
+    <div>基金管理人公告</div>
+    <a href="instance_show_pdf_id.do?instanceid=2">
+      关于旗下部分货币基金恢复申购业务的公告
+    </a>
+    """
+
+    assert [document.title for document in subscription_documents(html)] == [
+        "本基金暂停申购公告"
+    ]
+
+
 def test_unknown_subscription_state_is_not_assumed_open() -> None:
     shares = {
         "016452": SummaryShare("016452", "南方纳指100A", "A", "人民币", None)
@@ -1245,6 +1262,40 @@ def test_discovers_exact_share_names_from_subscription_announcement() -> None:
 
     assert shares["050025"][0].display_name == "博时标普500ETF联接A（人民币）"
     assert shares["013425"][0].display_name == "博时标普500ETF联接A（美元现汇）"
+
+
+def test_discovers_names_from_pdf_table_with_row_major_suffixes() -> None:
+    document = DisclosureDocument("调整大额申购公告", "https://example.test/a.pdf")
+    product_name = "汇添富纳斯达克100ETF发起式联接（QDII）"
+    shares = discover_subscription_shares(
+        [
+            (
+                document,
+                "下属基金份额的基金简称"
+                f"{product_name}{product_name}{product_name}{product_name}{product_name}"
+                "人民币A人民币C美元现钞美元现汇人民币E"
+                "下属基金份额的交易代码018966018967018969018968021773"
+                "金额单位人民币元人民币元美元美元人民币元"
+                "下属基金份额的限制申购金额100010001501501000",
+            )
+        ],
+        product_name,
+    )
+
+    assert [shares[code][0].display_name for code in shares] == [
+        f"{product_name}人民币A",
+        f"{product_name}人民币C",
+        f"{product_name}美元现钞",
+        f"{product_name}美元现汇",
+        f"{product_name}人民币E",
+    ]
+    assert shares["021773"][0] == SummaryShare(
+        "021773",
+        f"{product_name}人民币E",
+        "E",
+        "人民币",
+        None,
+    )
 
 
 def test_discovers_richer_names_after_a_less_specific_announcement() -> None:

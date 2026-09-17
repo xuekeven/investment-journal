@@ -1021,9 +1021,19 @@ def parse_subscription_announcement(
 
 
 def subscription_documents(detail_html: str) -> list[DisclosureDocument]:
+    manager_section = re.search(
+        r'<a\s+name=["\']section7["\'][^>]*>',
+        detail_html,
+        flags=re.IGNORECASE,
+    )
+    fund_html = (
+        detail_html[:manager_section.start()]
+        if manager_section is not None
+        else detail_html
+    )
     return [
         document
-        for document in disclosure_documents(detail_html, "")
+        for document in disclosure_documents(fund_html, "")
         if any(
             token in document.title
             for token in ("申购", "定投", "金额", "限制", "暂停", "恢复", "大额")
@@ -1031,6 +1041,27 @@ def subscription_documents(detail_html: str) -> list[DisclosureDocument]:
         and ("申购" in document.title or "定投" in document.title)
         and "节假日" not in document.title
     ][:12]
+
+
+def _split_concatenated_share_suffixes(
+    value: str,
+    expected_count: int,
+) -> list[str]:
+    """Split PDF table rows such as 人民币A人民币C美元现钞美元现汇人民币E."""
+
+    compact = re.sub(r"[、，,；;\s]+", "", value)
+    suffix_pattern = re.compile(
+        r"(?:"
+        r"人民币[A-Z](?:类)?|人民币|"
+        r"美元(?:现钞|现汇)(?:[A-Z](?:类)?)?|美元[A-Z](?:类)?|"
+        r"[A-Z](?:类)?(?:[（(](?:人民币|美元(?:现钞|现汇)?)[）)])?"
+        r")",
+        flags=re.IGNORECASE,
+    )
+    suffixes = suffix_pattern.findall(compact)
+    if len(suffixes) != expected_count or "".join(suffixes) != compact:
+        return []
+    return suffixes
 
 
 def discover_subscription_shares(
@@ -1068,6 +1099,17 @@ def discover_subscription_shares(
                 name_parts = name_block.split(name_base)
                 if len(name_parts) - 1 == len(codes):
                     name_suffixes = name_parts[1:]
+                    # PDF table extraction may emit the whole first row (the
+                    # repeated base name) before the whole second row (share
+                    # suffixes). In that layout all suffixes land in the final
+                    # split part instead of alongside their corresponding base.
+                    if any(not suffix for suffix in name_suffixes):
+                        distributed = _split_concatenated_share_suffixes(
+                            "".join(name_suffixes),
+                            len(codes),
+                        )
+                        if distributed:
+                            name_suffixes = distributed
                     explicit_names = [
                         f"{name_base}{suffix}" for suffix in name_suffixes
                     ]
