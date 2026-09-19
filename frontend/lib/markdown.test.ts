@@ -90,3 +90,30 @@ test("extracts unique article headings and ignores fenced code", () => {
     ],
   );
 });
+
+test("ignores Setext-like lines inside display math", () => {
+  const headings = extractMarkdownHeadings(String.raw`## 股息率
+
+\[
+\text{股息率}
+=
+\frac{\text{每股年度股息}}{\text{当前股价}}
+\]
+
+## 估值
+
+$$
+P
+=
+E \times PE
+$$
+`);
+
+  assert.deepEqual(
+    headings.map(({ level, text }) => ({ level, text })),
+    [
+      { level: 2, text: "股息率" },
+      { level: 2, text: "估值" },
+    ],
+  );
+});

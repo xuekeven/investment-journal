@@ -29,6 +29,7 @@ export function extractMarkdownHeadings(content: string): MarkdownHeading[] {
   const slugCounts = new Map<string, number>();
   const lines = content.split(/\r?\n/);
   let fence: { marker: string; length: number } | null = null;
+  let displayMathFence: "dollars" | "brackets" | null = null;
 
   function append(level: number, rawText: string, line: number) {
     const text = headingText(rawText.replace(/[ \t]+#+[ \t]*$/, ""));
@@ -56,6 +57,23 @@ export function extractMarkdownHeadings(content: string): MarkdownHeading[] {
       return;
     }
     if (fence !== null) return;
+
+    const trimmedLine = line.trim();
+    if (displayMathFence !== null) {
+      const closesDisplayMath = displayMathFence === "dollars"
+        ? /^\$\$\s*$/.test(trimmedLine)
+        : /^\\{1,2}\]\s*$/.test(trimmedLine);
+      if (closesDisplayMath) displayMathFence = null;
+      return;
+    }
+    if (/^\$\$\s*$/.test(trimmedLine)) {
+      displayMathFence = "dollars";
+      return;
+    }
+    if (/^\\{1,2}\[\s*$/.test(trimmedLine)) {
+      displayMathFence = "brackets";
+      return;
+    }
 
     const atxMatch = line.match(/^ {0,3}(#{1,6})[ \t]+(.+?)\s*$/);
     if (atxMatch) {

@@ -199,7 +199,7 @@ IFC_CORS_ORIGINS=https://homeserver.tailed5977.ts.net
 crontab -l
 ```
 
-默认日志写入当前部署用户的 `~/logs/index-fund-sync.log`。如需使用其他位置，在安装时设置 `IFC_SYNC_LOG`；该值会以绝对路径写入 crontab：
+默认日志写入项目内的 `logs/index-fund-sync.log`。如需使用其他位置，在安装时设置 `IFC_SYNC_LOG`；该值会以绝对路径写入 crontab：
 
 ```bash
 IFC_SYNC_LOG=/path/to/index-fund-sync.log ./deploy/manage-crontab.sh install

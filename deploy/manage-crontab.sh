@@ -24,15 +24,7 @@ source "${schedule_file}"
 : "${CSRC_FUNDS_SCHEDULE:?CSRC_FUNDS_SCHEDULE is required}"
 : "${CSRC_DETAILS_SCHEDULE:?CSRC_DETAILS_SCHEDULE is required}"
 
-account_directory=""
-if command -v getent >/dev/null 2>&1; then
-  account_directory="$(getent passwd "$(id -un)" | cut -d: -f6)"
-fi
-if [[ -z "${account_directory}" ]]; then
-  account_directory="$(CDPATH= cd -- && pwd)"
-fi
-
-sync_log="${IFC_SYNC_LOG:-${account_directory}/logs/index-fund-sync.log}"
+sync_log="${IFC_SYNC_LOG:-${project_directory}/logs/index-fund-sync.log}"
 log_directory="$(dirname -- "${sync_log}")"
 if [[ "${sync_log}" != /* ]]; then
   echo "IFC_SYNC_LOG must be an absolute path: ${sync_log}" >&2
