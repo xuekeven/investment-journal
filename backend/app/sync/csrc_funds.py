@@ -627,6 +627,13 @@ def parse_product_summary(text: str) -> ProductSummary:
 
 def _announcement_date(compact: str) -> date:
     date_pattern = r"(20\d{2})[年/-](\d{1,2})[月/-](\d{1,2})日?"
+    cutoff_match = re.search(
+        rf"(?:即|自){date_pattern}15[：:]00之后",
+        compact,
+    )
+    if cutoff_match:
+        year, month, day = cutoff_match.groups()
+        return date(int(year), int(month), int(day))
     effective_match = re.search(
         rf"(?:暂停(?:[（(]?大额[）)]?)?申购起始日|"
         rf"恢复(?:[（(]?大额[）)]?)?申购(?:起始)?日|自)"
@@ -1090,12 +1097,31 @@ def discover_subscription_shares(
         name_suffixes: list[str] = []
         if name_block_match:
             name_block = name_block_match.group(1)
+            official_short_name_match = re.search(
+                r"基金简称(.+?)基金主代码\d{6}",
+                compact,
+            )
+            official_short_name = (
+                official_short_name_match.group(1)
+                if official_short_name_match
+                else ""
+            )
+            product_name_without_combined_classes = re.sub(
+                r"[A-Z](?:[/、][A-Z])+$",
+                "",
+                product_name,
+                flags=re.IGNORECASE,
+            )
             name_bases = (
+                official_short_name,
+                product_name_without_combined_classes,
                 product_name,
                 product_name.replace("发起式", ""),
                 product_name.replace("发起", ""),
             )
-            for name_base in dict.fromkeys(name_bases):
+            for name_base in dict.fromkeys(
+                name_base for name_base in name_bases if name_base
+            ):
                 name_parts = name_block.split(name_base)
                 if len(name_parts) - 1 == len(codes):
                     name_suffixes = name_parts[1:]

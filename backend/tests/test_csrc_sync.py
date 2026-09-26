@@ -576,6 +576,35 @@ def test_parses_subscription_suspension_flags_and_limits() -> None:
     }
 
 
+def test_uses_order_cutoff_date_when_it_precedes_the_named_effective_date() -> None:
+    shares = {
+        "019737": SummaryShare(
+            "019737",
+            "宝盈纳斯达克100指数发起（QDII）C人民币",
+            "C",
+            "人民币",
+            None,
+        )
+    }
+
+    states = parse_subscription_announcement(
+        "调整大额申购、定期定额投资业务限制金额的公告",
+        """公告送出日期：2026年9月24日
+暂停大额申购起始日2026年9月28日
+限制申购金额（单位：人民币元）10.00
+下属分级基金的交易代码019737
+该分级基金是否暂停大额申购是
+自2026年9月28日（即2026年9月24日15：00之后）起调整限额。
+""",
+        shares,
+        "https://example.test/1587707.pdf",
+    )
+
+    assert [(state.code, state.limit_amount, state.effective_date) for state in states] == [
+        ("019737", Decimal("10.00"), date(2026, 9, 24)),
+    ]
+
+
 def test_parses_platform_suspension_when_fund_name_sits_between_keywords() -> None:
     shares = {
         share.code: share
@@ -1262,6 +1291,31 @@ def test_discovers_exact_share_names_from_subscription_announcement() -> None:
 
     assert shares["050025"][0].display_name == "博时标普500ETF联接A（人民币）"
     assert shares["013425"][0].display_name == "博时标普500ETF联接A（美元现汇）"
+
+
+def test_discovers_share_names_when_catalog_short_name_uses_combined_classes() -> None:
+    document = DisclosureDocument("调整大额申购公告", "https://example.test/a.pdf")
+    product_name = "华泰柏瑞纳斯达克100ETF发起式联接（QDII）"
+    shares = discover_subscription_shares(
+        [
+            (
+                document,
+                "基金简称"
+                f"{product_name}基金主代码019524"
+                "下属分级基金的基金简称"
+                f"{product_name}A{product_name}C{product_name}I"
+                "下属分级基金的交易代码019524019525022664"
+                "该分级基金是否限制大额申购是是是",
+            )
+        ],
+        f"{product_name}A/C",
+    )
+
+    assert [shares[code][0] for code in ("019524", "019525", "022664")] == [
+        SummaryShare("019524", f"{product_name}A", "A", "人民币", None),
+        SummaryShare("019525", f"{product_name}C", "C", "人民币", None),
+        SummaryShare("022664", f"{product_name}I", "I", "人民币", None),
+    ]
 
 
 def test_discovers_names_from_pdf_table_with_row_major_suffixes() -> None:
