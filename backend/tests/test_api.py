@@ -59,7 +59,7 @@ def test_frontend_serves_spa_fallback() -> None:
 def test_frontend_serves_built_asset() -> None:
     index = client.get("/")
     asset_path = index.text.split('src="', 1)[1].split('"', 1)[0]
-    response = client.get(asset_path.removeprefix("/indexfund"))
+    response = client.get(asset_path.removeprefix("/investment"))
     assert response.status_code == 200
     assert "javascript" in response.headers["content-type"]
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"

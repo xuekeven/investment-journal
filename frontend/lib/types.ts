@@ -101,7 +101,7 @@ export interface ComparisonResponse {
 
 export type InvestmentNoteCategory = "长期" | "实时";
 export type InvestmentNoteAction = "加仓" | "减仓" | "清仓" | "持有" | "观察";
-export type ContentOptionType = "investment_note_source" | "knowledge_category";
+export type ContentOptionType = "investment_note_source" | "knowledge_category" | "asset_purpose" | "asset_risk" | "asset_region" | "asset_class" | "asset_category";
 
 export interface ContentOptionResponse {
   optionType: ContentOptionType;
@@ -153,4 +153,103 @@ export interface KnowledgeArticle extends KnowledgeArticlePayload {
 export interface KnowledgeCategoryOrder {
   category: string;
   articleIds: number[];
+}
+
+export type AssetRegion = string;
+export type AssetPurpose = string;
+export type AssetRiskLevel = string;
+
+export interface AssetPositionConfig {
+  id: number | null;
+  name: string;
+  assetClass: string;
+  purpose: AssetPurpose;
+  riskLevel: AssetRiskLevel;
+  isInvestable: boolean;
+  sortOrder: number;
+}
+
+export interface AssetAccountConfig {
+  id: number | null;
+  name: string;
+  region: AssetRegion;
+  currency: string;
+  assetCategory: string;
+  targetAmount: number | null;
+  sortOrder: number;
+  positions: AssetPositionConfig[];
+}
+
+export interface AssetAllocationTarget {
+  riskLevel: "低" | "中" | "高";
+  targetPercent: number;
+  warningThreshold: number;
+}
+
+export interface AssetConfig {
+  accounts: AssetAccountConfig[];
+  targets: AssetAllocationTarget[];
+}
+
+export interface AssetDashboardPosition extends Omit<AssetPositionConfig, "id"> {
+  id: number;
+  amount: number;
+  fxRate: number;
+  amountCny: number;
+  expectedAnnualRate: number | null;
+}
+
+export interface AssetDashboardAccount {
+  id: number;
+  name: string;
+  region: AssetRegion;
+  currency: string;
+  assetCategory: string;
+  targetAmount: number | null;
+  sortOrder: number;
+  currentAmount: number;
+  positions: AssetDashboardPosition[];
+}
+
+export interface AssetAllocation {
+  riskLevel: "低" | "中" | "高";
+  targetPercent: number;
+  actualPercent: number;
+  amount: number;
+  deviationPercent: number;
+  warningThreshold: number;
+}
+
+export interface AssetHistoryPoint {
+  snapshotDate: string;
+  netAssets: number;
+  investableAssets: number;
+}
+
+export interface AssetDashboard {
+  snapshotId: number | null;
+  snapshotDate: string | null;
+  note: string | null;
+  summary: {
+    netAssets: number;
+    investableAssets: number;
+    domesticAssets: number;
+    overseasAssets: number;
+    previousNetChangePercent: number | null;
+  };
+  allocations: AssetAllocation[];
+  history: AssetHistoryPoint[];
+  accounts: AssetDashboardAccount[];
+}
+
+export interface AssetSnapshotPayload {
+  snapshotDate: string;
+  note: string | null;
+  targets: AssetAllocationTarget[];
+  items: Array<{
+    positionId: number;
+    amount: number;
+    fxRate: number;
+    expectedAnnualRate: number | null;
+  }>;
 }

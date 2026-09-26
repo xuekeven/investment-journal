@@ -1960,7 +1960,7 @@ def run_sync(
     limit: int | None = None,
     codes: tuple[str, ...] | None = None,
 ) -> CatalogSyncStats:
-    headers = {"User-Agent": "index-fund-comparator/0.1"}
+    headers = {"User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=2)
     collected_at = datetime.now(UTC)
     with httpx.Client(
@@ -2278,7 +2278,7 @@ def run_details_sync(
     limit: int | None = None,
     codes: tuple[str, ...] | None = None,
 ) -> SyncStats:
-    headers = {"User-Agent": "index-fund-comparator/0.1"}
+    headers = {"User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=2)
     with httpx.Client(
         timeout=httpx.Timeout(40, connect=10),

@@ -34,7 +34,7 @@ chmod +x "${fake_crontab}"
 
 run_manager() {
   IFC_CRONTAB_BIN="${fake_crontab}" \
-  IFC_SYNC_LOG="${test_directory}/index-fund-sync.log" \
+  IFC_SYNC_LOG="${test_directory}/investment-journal-sync.log" \
     "${script_directory}/manage-crontab.sh" "$1" >/dev/null
 }
 

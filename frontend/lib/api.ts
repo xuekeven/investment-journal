@@ -1,4 +1,7 @@
 import type {
+  AssetConfig,
+  AssetDashboard,
+  AssetSnapshotPayload,
   ComparisonResponse,
   ContentOptionResponse,
   ContentOptionType,
@@ -15,7 +18,7 @@ import type {
 } from "./types";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "/indexfund/api/v1";
+  import.meta.env.VITE_API_BASE_URL ?? "/investment/api/v1";
 
 export type SyncTaskKey = "all" | "A" | "B" | "C" | "D" | "E" | "F";
 export type SyncTaskState = {
@@ -216,4 +219,20 @@ export function reorderKnowledgeArticles(
 
 export function deleteKnowledgeArticle(articleId: number): Promise<{ deleted: boolean }> {
   return sendJson<{ deleted: boolean }>(`/knowledge/${articleId}`, "DELETE");
+}
+
+export function getAssetDashboard(signal?: AbortSignal): Promise<AssetDashboard> {
+  return getJson<AssetDashboard>("/assets", signal);
+}
+
+export function getAssetConfig(signal?: AbortSignal): Promise<AssetConfig> {
+  return getJson<AssetConfig>("/assets/config", signal);
+}
+
+export function updateAssetConfig(payload: AssetConfig): Promise<AssetConfig> {
+  return sendJson<AssetConfig>("/assets/config", "PUT", payload);
+}
+
+export function saveAssetSnapshot(payload: AssetSnapshotPayload): Promise<AssetDashboard> {
+  return sendJson<AssetDashboard>("/assets/snapshots", "POST", payload);
 }

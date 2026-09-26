@@ -3,9 +3,9 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "index-fund-comparator-api"
+name = "investment-journal-api"
 version = "0.1.0"
-description = "EOD index fund comparison API"
+description = "Investment research, knowledge, and asset review API"
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.14,<2.0",

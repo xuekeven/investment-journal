@@ -19,7 +19,7 @@ import type {
   KnowledgeSource,
 } from "@/lib/types";
 import { ContentOptionDialog } from "./content-option-dialog";
-import { ArrowUpIcon, CloseIcon, SearchIcon, SettingsIcon } from "./icons";
+import { ArrowUpIcon, CloseIcon, SearchIcon, SettingsIcon, TrashIcon } from "./icons";
 import { NoteSelect } from "./investment-notes";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { MarkdownToc } from "./markdown-toc";
@@ -955,7 +955,7 @@ export function KnowledgeBase() {
                             }))}
                             aria-label="删除资料"
                           >
-                            ×
+                            <TrashIcon />
                           </button>
                         )}
                         {index === draft.sources.length - 1 && (

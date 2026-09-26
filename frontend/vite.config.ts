@@ -4,15 +4,15 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const apiProxy = {
-  "/indexfund/api": {
+  "/investment/api": {
     target: "http://127.0.0.1:7006",
     changeOrigin: true,
-    rewrite: (path: string) => path.replace(/^\/indexfund/, ""),
+    rewrite: (path: string) => path.replace(/^\/investment/, ""),
   },
 };
 
 export default defineConfig({
-  base: "/indexfund/",
+  base: "/investment/",
   plugins: [react()],
   resolve: {
     alias: {

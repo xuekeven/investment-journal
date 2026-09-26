@@ -166,7 +166,7 @@ def fetch_report_page(
 def fetch_szse_funds() -> tuple[list[dict[str, str]], date]:
     rows_by_ticker: dict[str, dict[str, str]] = {}
     snapshot_dates: list[date] = []
-    headers = {"Referer": SZSE_SOURCE_URL, "User-Agent": "index-fund-comparator/0.1"}
+    headers = {"Referer": SZSE_SOURCE_URL, "User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=3)
     with httpx.Client(
         trust_env=False, timeout=30, headers=headers, transport=transport
@@ -333,7 +333,7 @@ def run_sync(*, dry_run: bool = False) -> tuple[date, int]:
     rows, snapshot_date = fetch_szse_funds()
     source_time = datetime.combine(snapshot_date, time.min, tzinfo=ASIA_SHANGHAI)
     target_tickers = [row["sys_key"] for row in rows if classify(row) is not None]
-    headers = {"User-Agent": "index-fund-comparator/0.1"}
+    headers = {"User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=2)
     with get_session_factory()() as session, httpx.Client(
         timeout=httpx.Timeout(30, connect=10),

@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import (
     ARRAY,
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -307,7 +308,7 @@ class ContentOption(Base, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint(
-            "option_type IN ('investment_note_source', 'knowledge_category')",
+            "option_type IN ('investment_note_source', 'knowledge_category', 'asset_purpose', 'asset_risk', 'asset_region', 'asset_class', 'asset_category')",
             name="ck_content_option_type",
         ),
         UniqueConstraint(
@@ -319,6 +320,135 @@ class ContentOption(Base, TimestampMixin):
             "option_type",
             "sort_order",
         ),
+    )
+
+
+class AssetAccount(Base, TimestampMixin):
+    __tablename__ = "asset_account"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    region: Mapped[str] = mapped_column(String(16), nullable=False)
+    currency: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'人民币'"))
+    asset_category: Mapped[str] = mapped_column(String(64), nullable=False, server_default=text("'基金'"))
+    target_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_asset_account_user_name"),
+        Index("ix_asset_account_user_order", "user_id", "sort_order"),
+    )
+
+
+class AssetPosition(Base, TimestampMixin):
+    __tablename__ = "asset_position"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_account_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("asset_account.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    asset_class: Mapped[str] = mapped_column(String(64), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(24), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    is_investable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+
+    __table_args__ = (
+        UniqueConstraint("asset_account_id", "name", name="uq_asset_position_account_name"),
+        Index("ix_asset_position_account_order", "asset_account_id", "sort_order"),
+    )
+
+
+class AssetSnapshot(Base, TimestampMixin):
+    __tablename__ = "asset_snapshot"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
+    base_currency: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'人民币'"))
+    note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "snapshot_date", name="uq_asset_snapshot_user_date"),
+        Index("ix_asset_snapshot_user_date", "user_id", "snapshot_date"),
+    )
+
+
+class AssetSnapshotItem(Base, TimestampMixin):
+    __tablename__ = "asset_snapshot_item"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    asset_snapshot_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("asset_snapshot.id", ondelete="CASCADE"), nullable=False
+    )
+    asset_position_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("asset_position.id", ondelete="RESTRICT"), nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    fx_rate: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, server_default=text("1"))
+    amount_cny: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    expected_annual_rate: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+
+    __table_args__ = (
+        CheckConstraint("fx_rate > 0", name="ck_asset_snapshot_item_fx_positive"),
+        UniqueConstraint(
+            "asset_snapshot_id", "asset_position_id", name="uq_asset_snapshot_position"
+        ),
+        Index("ix_asset_snapshot_item_snapshot", "asset_snapshot_id"),
+    )
+
+
+class AssetSnapshotTarget(Base, TimestampMixin):
+    __tablename__ = "asset_snapshot_target"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    asset_snapshot_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("asset_snapshot.id", ondelete="CASCADE"), nullable=False
+    )
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_percent: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    warning_threshold: Mapped[Decimal] = mapped_column(
+        Numeric(8, 4), nullable=False, server_default=text("5")
+    )
+
+    __table_args__ = (
+        CheckConstraint("risk_level IN ('低', '中', '高')", name="ck_asset_snapshot_target_risk"),
+        CheckConstraint(
+            "target_percent >= 0 AND target_percent <= 100",
+            name="ck_asset_snapshot_target_percent",
+        ),
+        CheckConstraint("warning_threshold >= 0", name="ck_asset_snapshot_target_threshold"),
+        UniqueConstraint(
+            "asset_snapshot_id", "risk_level", name="uq_asset_snapshot_target_risk"
+        ),
+        Index("ix_asset_snapshot_target_snapshot", "asset_snapshot_id"),
+    )
+
+
+class AssetAllocationTarget(Base, TimestampMixin):
+    __tablename__ = "asset_allocation_target"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_percent: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    warning_threshold: Mapped[Decimal] = mapped_column(
+        Numeric(8, 4), nullable=False, server_default=text("5")
+    )
+
+    __table_args__ = (
+        CheckConstraint("risk_level IN ('低', '中', '高')", name="ck_asset_target_risk"),
+        CheckConstraint(
+            "target_percent >= 0 AND target_percent <= 100",
+            name="ck_asset_target_percent",
+        ),
+        CheckConstraint("warning_threshold >= 0", name="ck_asset_target_threshold"),
+        UniqueConstraint("user_id", "risk_level", name="uq_asset_target_user_risk"),
     )
 
 

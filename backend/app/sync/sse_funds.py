@@ -31,7 +31,7 @@ SSE_LIST_URL = "https://query.sse.com.cn/commonQuery.do"
 SSE_SOURCE_URL = "https://etf.sse.com.cn/fundlist/"
 SSE_FUND_BASE_INFO_SQL_ID = "COMMON_JJZWZ_JJLB_JJXQ_JBXX_C"
 SSE_FUND_NAV_URL = "https://yunhq.sse.com.cn:32042/v1/sh1/dayk"
-SSE_USER_AGENT = "index-fund-comparator/0.1"
+SSE_USER_AGENT = "investment-journal/0.1"
 ASIA_SHANGHAI = ZoneInfo("Asia/Shanghai")
 logger = logging.getLogger(__name__)
 

@@ -136,7 +136,7 @@ def run_sync(
     *, trade_date: date | None = None, dry_run: bool = False
 ) -> tuple[date, int, list[str]]:
     collected_at = datetime.now(UTC)
-    headers = {"Referer": SZSE_SOURCE_URL, "User-Agent": "index-fund-comparator/0.1"}
+    headers = {"Referer": SZSE_SOURCE_URL, "User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=3)
     with httpx.Client(
         trust_env=False, timeout=30, headers=headers, transport=transport

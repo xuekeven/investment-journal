@@ -1,4 +1,4 @@
-# 指数基金比较工具
+# 投资札记
 
 当前版本开发时采用前后端分离架构，生产环境由 FastAPI 单进程同时提供 API 和构建后的前端静态文件：
 
@@ -9,7 +9,7 @@
 
 本项目不区分本地开发库和服务器生产库。PostgreSQL 运行在 Home Server 上，是唯一共享数据库；服务器后端通过回环地址连接，本地后端通过 Tailscale 或可信局域网连接同一实例。数据库迁移和正式数据同步统一在 Home Server 执行，避免两端重复迁移或同时写入。
 
-当前 Web 端支持按指数和交易方式筛选基金、搜索基金，并选择 2–4 个份额生成并排比较结果；指数、场内/场外及其下级筛选会保存在浏览器 `localStorage`。比较表展示精确跟踪基准、交易价格与净值日期、运作费率、销售服务费、收益率、规模及数据来源；暂无数据的指标明确显示为空。基金可设置收藏、持有和定投标签；持有数量与定投金额均为可选值，空值只展示标签，显式填写 `0` 或正数时会在基金表格及对应标签弹层中一并展示，定投金额按基金币种区分人民币和美元。Web 端还提供“投资笔记”和独立的“投资手册”：前者按日期记录观点与复盘，后者按主题维护相对稳定的基础知识，支持 Markdown、标签、来源和最后复核日期。
+当前 Web 端包含指数基金、投资笔记、投资手册和资产管理四个模块，以“研究、沉淀、复盘”为核心。指数、场内/场外及其下级筛选保存在浏览器 `sessionStorage`，关闭标签页后自动失效。
 
 ## 目录
 
@@ -44,7 +44,7 @@ pnpm dev
 
 访问地址：
 
-- Web：http://127.0.0.1:6006/indexfund/
+- Web：http://127.0.0.1:6006/investment/
 
 这是个人自用版本，FastAPI 的 Swagger、ReDoc 和 OpenAPI schema 默认关闭。
 
@@ -60,10 +60,10 @@ pnpm dev
 
 前端通过 `GET /api/v1/content-options/{option_type}` 加载选项，通过 `PUT /api/v1/content-options/{option_type}` 整组保存。当前支持的类型为 `investment_note_source` 和 `knowledge_category`，每类至少保留一项，服务端会去除首尾空格并按首次出现去重。
 
-Vite 会把 `/indexfund/api/*` 代理到本地 FastAPI `7006`。如需覆盖 API 地址，将 `frontend/.env.example` 复制为 `frontend/.env.local`，再设置：
+Vite 会把 `/investment/api/*` 代理到本地 FastAPI `7006`。如需覆盖 API 地址，将 `frontend/.env.example` 复制为 `frontend/.env.local`，再设置：
 
 ```env
-VITE_API_BASE_URL=/indexfund/api/v1
+VITE_API_BASE_URL=/investment/api/v1
 ```
 
 ## 共享数据库与迁移
@@ -165,13 +165,13 @@ uv run alembic check
 
 ## Home Server 部署（Git + PM2）
 
-以下方案由 PM2 托管一个 FastAPI/Uvicorn 进程。FastAPI 在 `127.0.0.1:6006` 同时提供 API 和构建后的前端静态文件，Nginx 通过 `/indexfund/` 反向代理；生产环境不运行 Vite 静态服务器。示例假设 Home Server 为 Linux，已安装 Git、uv、Python 3.11+、Node.js 20+、pnpm、PM2、Nginx 和 PostgreSQL 16。
+以下方案由 PM2 托管一个 FastAPI/Uvicorn 进程。FastAPI 在 `127.0.0.1:6006` 同时提供 API 和构建后的前端静态文件，Nginx 通过 `/investment/` 反向代理；生产环境不运行 Vite 静态服务器。示例假设 Home Server 为 Linux，已安装 Git、uv、Python 3.11+、Node.js 20+、pnpm、PM2、Nginx 和 PostgreSQL 16。
 
 首次拉取代码：
 
 ```bash
-git clone git@github.com:xuekeven/index-fund-comparator.git
-cd index-fund-comparator
+git clone git@github.com:xuekeven/investment-journal.git
+cd investment-journal
 ```
 
 准备后端：
@@ -199,10 +199,10 @@ IFC_CORS_ORIGINS=https://homeserver.tailed5977.ts.net
 crontab -l
 ```
 
-默认日志写入项目内的 `logs/index-fund-sync.log`。如需使用其他位置，在安装时设置 `IFC_SYNC_LOG`；该值会以绝对路径写入 crontab：
+默认日志写入项目内的 `logs/investment-journal-sync.log`。如需使用其他位置，在安装时设置 `IFC_SYNC_LOG`；该值会以绝对路径写入 crontab：
 
 ```bash
-IFC_SYNC_LOG=/path/to/index-fund-sync.log ./deploy/manage-crontab.sh install
+IFC_SYNC_LOG=/path/to/investment-journal-sync.log ./deploy/manage-crontab.sh install
 ```
 
 首次部署前确认本地开发机已能通过 Tailscale 或可信局域网连接该 PostgreSQL 实例。服务器至少需要满足：
@@ -216,10 +216,10 @@ IFC_SYNC_LOG=/path/to/index-fund-sync.log ./deploy/manage-crontab.sh install
 首次部署或包含迁移的发布，先备份共享数据库，再在 Home Server 执行迁移：
 
 ```bash
-mkdir -p ../index-fund-comparator-backups
+mkdir -p ../investment-journal-backups
 pg_dump \
   --format=custom \
-  --file="../index-fund-comparator-backups/index_fund_comparator_$(date +%Y%m%d_%H%M%S).dump" \
+  --file="../investment-journal-backups/index_fund_comparator_$(date +%Y%m%d_%H%M%S).dump" \
   --dbname=postgresql://username@127.0.0.1:5432/index_fund_comparator
 
 cd backend
@@ -229,7 +229,7 @@ cd ..
 
 `pg_dump` 会按 PostgreSQL 客户端配置提示输入密码，也可以在服务器上使用权限受控的 `.pgpass`。上述目录位于 Git 仓库之外，备份还应定期转移到独立存储。
 
-安装并构建前端。默认使用同源 API 地址 `/indexfund/api/v1`，无需写死服务器地址：
+安装并构建前端。默认使用同源 API 地址 `/investment/api/v1`，无需写死服务器地址：
 
 ```bash
 cd frontend
@@ -246,17 +246,17 @@ pm2 save
 pm2 startup
 ```
 
-`pm2 startup` 会输出一条需要以管理员权限执行的命令；执行该命令后再次运行 `pm2 save`。完成后访问 `https://homeserver.tailed5977.ts.net/indexfund/`。查看运行状态和日志：
+`pm2 startup` 会输出一条需要以管理员权限执行的命令；执行该命令后再次运行 `pm2 save`。完成后访问 `https://homeserver.tailed5977.ts.net/investment/`。旧地址 `/indexfund/` 永久跳转到新地址。查看运行状态和日志：
 
 ```bash
 pm2 status
-pm2 logs index-fund-api
+pm2 logs investment-journal-api
 ```
 
 后续发布新版本：
 
 ```bash
-cd index-fund-comparator
+cd investment-journal
 git pull --ff-only
 
 cd backend
@@ -278,4 +278,4 @@ pm2 save
 
 定时任务修改后只需更新 `deploy/schedules.conf` 并重新执行安装脚本。卸载项目定时任务使用 `./deploy/manage-crontab.sh remove`；该命令不会删除其他 crontab 条目。
 
-FastAPI 只监听回环地址 `127.0.0.1:6006`，对外仅开放 Nginx HTTPS 的 `/indexfund/`。开发端口 `7006` 不用于生产。PostgreSQL 的 `5432` 仅对服务器自身和明确授权的 Tailscale/局域网设备开放，绝不能直接暴露到公网。
+FastAPI 只监听回环地址 `127.0.0.1:6006`，对外仅开放 Nginx HTTPS 的 `/investment/`。开发端口 `7006` 不用于生产。PostgreSQL 的 `5432` 仅对服务器自身和明确授权的 Tailscale/局域网设备开放，绝不能直接暴露到公网。

@@ -355,7 +355,7 @@ def run_sync(
     rows, list_snapshot_date = fetch_szse_funds()
     scale_by_ticker = {row["sys_key"]: row for row in rows}
     collected_at = datetime.now(UTC)
-    headers = {"Referer": SZSE_SOURCE_URL, "User-Agent": "index-fund-comparator/0.1"}
+    headers = {"Referer": SZSE_SOURCE_URL, "User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=3)
     funds = quotes = nav_rows = scales = 0
     failures: list[str] = []

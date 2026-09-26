@@ -76,6 +76,14 @@ DEFAULT_CONTENT_OPTIONS: dict[ContentOptionType, tuple[str, ...]] = {
         "红利策略",
         "交易工具",
     ),
+    ContentOptionType.ASSET_PURPOSE: ("短期日用", "中期稳健", "长期投资", "不参与配置"),
+    ContentOptionType.ASSET_RISK: ("低", "中", "高", "未分类"),
+    ContentOptionType.ASSET_REGION: ("境内", "境外"),
+    ContentOptionType.ASSET_CATEGORY: ("股票", "基金", "货币", "债券", "存款", "信用"),
+    ContentOptionType.ASSET_CLASS: (
+        "货币基金", "黄金与红利", "股票基金", "债券基金", "基金组合", "存款",
+        "公积金", "应收款", "负债", "股票", "债券与现金", "现金", "其他",
+    ),
 }
 
 

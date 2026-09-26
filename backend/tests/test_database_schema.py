@@ -19,6 +19,12 @@ CORE_TABLES = {
     "investment_note",
     "knowledge_article",
     "content_option",
+    "asset_account",
+    "asset_position",
+    "asset_snapshot",
+    "asset_snapshot_item",
+    "asset_snapshot_target",
+    "asset_allocation_target",
 }
 
 
@@ -112,6 +118,7 @@ def test_content_options_are_scoped_and_ordered() -> None:
     assert "user_id" in option_table.columns
     assert "investment_note_source" in str(constraint.sqltext)
     assert "knowledge_category" in str(constraint.sqltext)
+    assert "asset_category" in str(constraint.sqltext)
     assert "ix_content_option_user_type_order" in {
         index.name for index in option_table.indexes
     }
@@ -129,3 +136,19 @@ def test_knowledge_articles_store_stable_reference_fields() -> None:
     assert "category_order" in article_table.columns
     assert "article_order" in article_table.columns
     assert "ix_knowledge_article_user_order" in {index.name for index in article_table.indexes}
+
+
+def test_asset_management_uses_structured_snapshots() -> None:
+    account_table = Base.metadata.tables["asset_account"]
+    position_table = Base.metadata.tables["asset_position"]
+    snapshot_item_table = Base.metadata.tables["asset_snapshot_item"]
+
+    assert "target_amount" in account_table.columns
+    assert "asset_category" in account_table.columns
+    assert "purpose" in position_table.columns
+    assert "risk_level" in position_table.columns
+    assert "is_investable" in position_table.columns
+    assert {key.target_fullname for key in snapshot_item_table.foreign_keys} == {
+        "asset_snapshot.id",
+        "asset_position.id",
+    }

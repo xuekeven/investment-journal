@@ -2,8 +2,10 @@
 
 set -euo pipefail
 
-managed_block_start="# BEGIN index-fund-comparator managed jobs"
-managed_block_end="# END index-fund-comparator managed jobs"
+managed_block_start="# BEGIN investment-journal managed jobs"
+managed_block_end="# END investment-journal managed jobs"
+legacy_block_start="# BEGIN index-fund-comparator managed jobs"
+legacy_block_end="# END index-fund-comparator managed jobs"
 script_directory="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_directory="$(CDPATH= cd -- "${script_directory}/.." && pwd)"
 backend_directory="${project_directory}/backend"
@@ -24,7 +26,7 @@ source "${schedule_file}"
 : "${CSRC_FUNDS_SCHEDULE:?CSRC_FUNDS_SCHEDULE is required}"
 : "${CSRC_DETAILS_SCHEDULE:?CSRC_DETAILS_SCHEDULE is required}"
 
-sync_log="${IFC_SYNC_LOG:-${project_directory}/logs/index-fund-sync.log}"
+sync_log="${IFC_SYNC_LOG:-${project_directory}/logs/investment-journal-sync.log}"
 log_directory="$(dirname -- "${sync_log}")"
 if [[ "${sync_log}" != /* ]]; then
   echo "IFC_SYNC_LOG must be an absolute path: ${sync_log}" >&2
@@ -66,9 +68,11 @@ fi
 
 awk \
   -v block_start="${managed_block_start}" \
-  -v block_end="${managed_block_end}" '
-    $0 == block_start { in_managed_block = 1; next }
-    $0 == block_end { in_managed_block = 0; next }
+  -v block_end="${managed_block_end}" \
+  -v legacy_block_start="${legacy_block_start}" \
+  -v legacy_block_end="${legacy_block_end}" '
+    $0 == block_start || $0 == legacy_block_start { in_managed_block = 1; next }
+    $0 == block_end || $0 == legacy_block_end { in_managed_block = 0; next }
     in_managed_block { next }
     /app\.sync\.sse_funds/ { next }
     /app\.sync\.sse_details/ { next }
@@ -113,14 +117,14 @@ case "${action}" in
     fi
     mkdir -p "${log_directory}"
     "${crontab_binary}" "${generated_crontab}"
-    echo "Installed index-fund-comparator cron jobs from ${schedule_file}"
+    echo "Installed investment-journal cron jobs from ${schedule_file}"
     ;;
   print)
     cat "${generated_crontab}"
     ;;
   remove)
     "${crontab_binary}" "${cleaned_crontab}"
-    echo "Removed index-fund-comparator cron jobs"
+    echo "Removed investment-journal cron jobs"
     ;;
   *)
     echo "Usage: $0 [install|print|remove]" >&2

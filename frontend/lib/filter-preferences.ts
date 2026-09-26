@@ -5,7 +5,18 @@ import {
 } from "./fund-list";
 import type { VenueFilter } from "./fund-list";
 
-const FILTER_PREFERENCES_KEY = "index-fund-comparator:filters:v1";
+const FILTER_PREFERENCES_KEY = "investment-journal:filters:v1";
+const LEGACY_FILTER_PREFERENCES_KEY = "index-fund-comparator:filters:v1";
+
+function clearLegacyLocalPreferences() {
+  try {
+    window.localStorage.removeItem(FILTER_PREFERENCES_KEY);
+    window.localStorage.removeItem(LEGACY_FILTER_PREFERENCES_KEY);
+    window.sessionStorage.removeItem(LEGACY_FILTER_PREFERENCES_KEY);
+  } catch {
+    // Storage may be unavailable in privacy-restricted browsing contexts.
+  }
+}
 
 export interface FilterPreferences {
   activeIndex: string;
@@ -18,7 +29,7 @@ export interface FilterPreferences {
 }
 
 const DEFAULT_FILTER_PREFERENCES: FilterPreferences = {
-  activeIndex: "csi-500",
+  activeIndex: "sp-500",
   venue: "场内",
   exchanges: [],
   shareClasses: [],
@@ -35,8 +46,9 @@ function stringArray(value: unknown) {
 
 export function readFilterPreferences(): FilterPreferences {
   if (typeof window === "undefined") return DEFAULT_FILTER_PREFERENCES;
+  clearLegacyLocalPreferences();
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(FILTER_PREFERENCES_KEY) ?? "null");
+    const parsed = JSON.parse(window.sessionStorage.getItem(FILTER_PREFERENCES_KEY) ?? "null");
     if (!parsed || typeof parsed !== "object") return DEFAULT_FILTER_PREFERENCES;
     const value = parsed as Partial<FilterPreferences> & { tags?: unknown };
     const venue = VENUES.includes(value.venue as VenueFilter)
@@ -65,8 +77,9 @@ export function readFilterPreferences(): FilterPreferences {
 
 export function writeFilterPreferences(preferences: FilterPreferences) {
   if (typeof window === "undefined") return;
+  clearLegacyLocalPreferences();
   try {
-    window.localStorage.setItem(FILTER_PREFERENCES_KEY, JSON.stringify(preferences));
+    window.sessionStorage.setItem(FILTER_PREFERENCES_KEY, JSON.stringify(preferences));
   } catch {
     return;
   }

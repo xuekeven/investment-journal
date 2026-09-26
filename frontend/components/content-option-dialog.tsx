@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import type { DragEvent, FormEvent } from "react";
 
-import { CloseIcon } from "./icons";
+import { CloseIcon, TrashIcon } from "./icons";
 
 type ContentOptionDialogProps = {
   pageTitle: string;
@@ -23,6 +23,8 @@ export function ContentOptionDialog({
   const [draft, setDraft] = useState(values.length > 0 ? values : [""]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -38,14 +40,26 @@ export function ContentOptionDialog({
     )));
   }
 
-  function move(index: number, offset: -1 | 1) {
+  function beginDrag(event: DragEvent<HTMLButtonElement>, index: number) {
+    setDraggedIndex(index);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(index));
+  }
+
+  function dropAt(event: DragEvent<HTMLDivElement>, targetIndex: number) {
+    event.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      setDragOverIndex(null);
+      return;
+    }
     setDraft((current) => {
-      const target = index + offset;
-      if (target < 0 || target >= current.length) return current;
       const next = [...current];
-      [next[index], next[target]] = [next[target], next[index]];
+      const [moved] = next.splice(draggedIndex, 1);
+      next.splice(targetIndex, 0, moved);
       return next;
     });
+    setDraggedIndex(null);
+    setDragOverIndex(null);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -103,7 +117,13 @@ export function ContentOptionDialog({
             </header>
             <div className="content-option-list">
             {draft.map((value, index) => (
-              <div className="content-option-row" key={String(index)}>
+              <div
+                className={`content-option-row${draggedIndex === index ? " dragging" : ""}${dragOverIndex === index ? " drag-over" : ""}`}
+                key={String(index)}
+                onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverIndex(index); }}
+                onDrop={(event) => dropAt(event, index)}
+              >
+                <button className="drag-handle" type="button" draggable={!saving} disabled={saving} aria-label={`拖动调整${value || itemLabel}顺序`} title="拖动调整顺序" onDragStart={(event) => beginDrag(event, index)} onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}><span aria-hidden="true">⠿</span></button>
                 <input
                   autoFocus={index === 0}
                   maxLength={200}
@@ -112,9 +132,7 @@ export function ContentOptionDialog({
                   aria-label={`${itemLabel} ${index + 1}`}
                   placeholder={`请输入${itemLabel}`}
                 />
-                <button type="button" onClick={() => move(index, -1)} disabled={index === 0 || saving} aria-label="上移">↑</button>
-                <button type="button" onClick={() => move(index, 1)} disabled={index === draft.length - 1 || saving} aria-label="下移">↓</button>
-                <button className="danger" type="button" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={draft.length === 1 || saving} aria-label="删除">×</button>
+                <button className="danger" type="button" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={draft.length === 1 || saving} aria-label={`删除${value || itemLabel}`} title="删除"><TrashIcon /></button>
               </div>
             ))}
             </div>

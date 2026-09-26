@@ -6,9 +6,15 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.assets import get_asset_config, get_asset_dashboard, save_asset_config, save_asset_snapshot
+from app.database import get_db_session
 from app.models import (
+    AssetConfigPayload,
+    AssetDashboard,
+    AssetSnapshotPayload,
     ComparisonResponse,
     ContentOptionList,
     ContentOptionType,
@@ -35,7 +41,7 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="为响应式 Web 提供按份额类别组织的指数基金 EOD 比较数据。",
+    description="为投资研究、知识沉淀与资产复盘提供数据服务。",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -49,6 +55,7 @@ app.add_middleware(
 )
 
 RepositoryDep = Annotated[FundRepository, Depends(get_repository)]
+SessionDep = Annotated[Session, Depends(get_db_session)]
 FRONTEND_DIST_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 DISABLED_DOCUMENTATION_PATHS = {"docs", "redoc", "openapi.json"}
 
@@ -342,6 +349,37 @@ def delete_knowledge_article(
     if not repository.delete_knowledge_article(article_id):
         raise HTTPException(status_code=404, detail="Knowledge article not found")
     return {"deleted": True}
+
+
+@app.get(f"{settings.api_prefix}/assets", response_model=AssetDashboard)
+def asset_dashboard(session: SessionDep, snapshot_id: int | None = None) -> AssetDashboard:
+    try:
+        return get_asset_dashboard(session, snapshot_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get(f"{settings.api_prefix}/assets/config", response_model=AssetConfigPayload)
+def asset_config(session: SessionDep) -> AssetConfigPayload:
+    return get_asset_config(session)
+
+
+@app.put(f"{settings.api_prefix}/assets/config", response_model=AssetConfigPayload)
+def update_asset_config(payload: AssetConfigPayload, session: SessionDep) -> AssetConfigPayload:
+    try:
+        return save_asset_config(session, payload)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post(f"{settings.api_prefix}/assets/snapshots", response_model=AssetDashboard)
+def update_asset_snapshot(payload: AssetSnapshotPayload, session: SessionDep) -> AssetDashboard:
+    try:
+        return save_asset_snapshot(session, payload)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get(f"{settings.api_prefix}/sync-tasks")

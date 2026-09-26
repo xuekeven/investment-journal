@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -222,6 +222,11 @@ class KnowledgeReorderRequest(ApiModel):
 class ContentOptionType(str, Enum):
     INVESTMENT_NOTE_SOURCE = "investment_note_source"
     KNOWLEDGE_CATEGORY = "knowledge_category"
+    ASSET_PURPOSE = "asset_purpose"
+    ASSET_RISK = "asset_risk"
+    ASSET_REGION = "asset_region"
+    ASSET_CLASS = "asset_class"
+    ASSET_CATEGORY = "asset_category"
 
 
 class ContentOptionList(ApiModel):
@@ -239,6 +244,105 @@ class KnowledgeArticleItem(KnowledgeArticlePayload):
     article_order: int
     created_at: datetime
     updated_at: datetime
+
+
+class AssetPositionConfig(ApiModel):
+    id: int | None = None
+    name: str = Field(min_length=1, max_length=160)
+    asset_class: str = Field(min_length=1, max_length=64)
+    purpose: str = Field(min_length=1, max_length=24)
+    risk_level: str = Field(min_length=1, max_length=16)
+    is_investable: bool = True
+    sort_order: int = 0
+
+
+class AssetAccountConfig(ApiModel):
+    id: int | None = None
+    name: str = Field(min_length=1, max_length=120)
+    region: str = Field(min_length=1, max_length=16)
+    currency: str = Field(default="人民币", min_length=1, max_length=16)
+    asset_category: str = Field(default="基金", min_length=1, max_length=64)
+    target_amount: float | None = None
+    sort_order: int = 0
+    positions: list[AssetPositionConfig] = Field(default_factory=list)
+
+
+class AssetAllocationTargetPayload(ApiModel):
+    risk_level: Literal["低", "中", "高"]
+    target_percent: float = Field(ge=0, le=100)
+    warning_threshold: float = Field(default=5, ge=0, le=100)
+
+
+class AssetConfigPayload(ApiModel):
+    accounts: list[AssetAccountConfig]
+    targets: list[AssetAllocationTargetPayload]
+
+
+class AssetSnapshotItemPayload(ApiModel):
+    position_id: int
+    amount: float
+    fx_rate: float = Field(default=1, gt=0)
+    expected_annual_rate: float | None = None
+
+
+class AssetSnapshotPayload(ApiModel):
+    snapshot_date: date
+    note: str | None = Field(default=None, max_length=1000)
+    items: list[AssetSnapshotItemPayload]
+    targets: list[AssetAllocationTargetPayload]
+
+
+class AssetDashboardPosition(AssetPositionConfig):
+    id: int
+    amount: float = 0
+    fx_rate: float = 1
+    amount_cny: float = 0
+    expected_annual_rate: float | None = None
+
+
+class AssetDashboardAccount(ApiModel):
+    id: int
+    name: str
+    region: str
+    currency: str
+    asset_category: str
+    target_amount: float | None = None
+    sort_order: int
+    current_amount: float
+    positions: list[AssetDashboardPosition]
+
+
+class AssetSummary(ApiModel):
+    net_assets: float
+    investable_assets: float
+    domestic_assets: float
+    overseas_assets: float
+    previous_net_change_percent: float | None = None
+
+
+class AssetAllocationItem(ApiModel):
+    risk_level: Literal["低", "中", "高"]
+    target_percent: float
+    actual_percent: float
+    amount: float
+    deviation_percent: float
+    warning_threshold: float
+
+
+class AssetHistoryPoint(ApiModel):
+    snapshot_date: date
+    net_assets: float
+    investable_assets: float
+
+
+class AssetDashboard(ApiModel):
+    snapshot_id: int | None = None
+    snapshot_date: date | None = None
+    note: str | None = None
+    summary: AssetSummary
+    allocations: list[AssetAllocationItem]
+    history: list[AssetHistoryPoint]
+    accounts: list[AssetDashboardAccount]
 
 
 class FundListResponse(ApiModel):

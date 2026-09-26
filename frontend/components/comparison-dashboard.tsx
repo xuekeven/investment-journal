@@ -33,6 +33,7 @@ import { FUND_TAG_META } from "./fund-tag-meta";
 import { InvestmentNotes } from "./investment-notes";
 import { KnowledgeBase } from "./knowledge-base";
 import { TaggedFundsDialog } from "./tagged-funds-dialog";
+import { AssetManagement } from "./asset-management";
 
 type CachedFunds = {
   items: FundComparisonRow[];
@@ -167,9 +168,11 @@ function SingleSelectFilter({
 
 export function ComparisonDashboard() {
   const [initialFilters] = useState(readFilterPreferences);
-  const [activePage, setActivePage] = useState<"funds" | "notes" | "knowledge">(
+  const [activePage, setActivePage] = useState<"funds" | "notes" | "knowledge" | "assets">(
     () => window.location.hash === "#notes"
       ? "notes"
+      : window.location.hash === "#assets"
+        ? "assets"
       : window.location.hash.startsWith("#knowledge")
         ? "knowledge"
         : "funds",
@@ -185,8 +188,8 @@ export function ComparisonDashboard() {
   );
   const [taggedOnly, setTaggedOnly] = useState(initialFilters.taggedOnly);
   const [openFilter, setOpenFilter] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<FundSortKey | null>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [sortKey, setSortKey] = useState<FundSortKey | null>("return1y");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [funds, setFunds] = useState<FundComparisonRow[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -217,6 +220,8 @@ export function ComparisonDashboard() {
       setActivePage(
         window.location.hash === "#notes"
           ? "notes"
+          : window.location.hash === "#assets"
+            ? "assets"
           : window.location.hash.startsWith("#knowledge")
             ? "knowledge"
             : "funds",
@@ -660,7 +665,7 @@ export function ComparisonDashboard() {
             <MarkIcon className="brand-mark" />
             <span>
               <strong>投资札记</strong>
-              <small>基金比较与投资复盘</small>
+              <small>研究、沉淀、复盘</small>
             </span>
           </a>
           <nav className="primary-nav" aria-label="主要功能">
@@ -694,6 +699,16 @@ export function ComparisonDashboard() {
             >
               投资手册
             </button>
+            <button
+              className={activePage === "assets" ? "active" : ""}
+              type="button"
+              onClick={() => {
+                window.location.hash = "assets";
+                setActivePage("assets");
+              }}
+            >
+              资产管理
+            </button>
           </nav>
         </div>
       </header>
@@ -702,6 +717,8 @@ export function ComparisonDashboard() {
         <InvestmentNotes />
       ) : activePage === "knowledge" ? (
         <KnowledgeBase />
+      ) : activePage === "assets" ? (
+        <AssetManagement />
       ) : (
         <>
       <main id="top">
