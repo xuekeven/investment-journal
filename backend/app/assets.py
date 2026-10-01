@@ -22,6 +22,7 @@ from app.models import (
     AssetDashboardAccount,
     AssetDashboardPosition,
     AssetHistoryPoint,
+    AssetPositionConfig,
     AssetSnapshotPayload,
     AssetSummary,
 )
@@ -127,7 +128,12 @@ def get_asset_config(session: Session) -> AssetConfigPayload:
     )
 
 
-def save_asset_config(session: Session, payload: AssetConfigPayload) -> AssetConfigPayload:
+def save_asset_config(
+    session: Session,
+    payload: AssetConfigPayload,
+    *,
+    preserve_missing: bool = False,
+) -> AssetConfigPayload:
     if payload.targets and round(sum(item.target_percent for item in payload.targets), 4) != 100:
         raise ValueError("风险目标比例合计必须等于 100%")
     existing_accounts = {
@@ -140,32 +146,55 @@ def save_asset_config(session: Session, payload: AssetConfigPayload) -> AssetCon
             select(AssetPosition).where(AssetPosition.user_id == SINGLE_USER_ID)
         )
     }
+    account_names = [item.name.strip() for item in payload.accounts]
+    if len(account_names) != len(set(account_names)):
+        raise ValueError("账户名称不能重复")
+    for account_value in payload.accounts:
+        position_names = [item.name.strip() for item in account_value.positions]
+        if len(position_names) != len(set(position_names)):
+            raise ValueError(f"账户“{account_value.name.strip()}”中存在同名持仓")
+    existing_accounts_by_name = {item.name: item for item in existing_accounts.values()}
+    existing_positions_by_account_name = {
+        (item.asset_account_id, item.name): item for item in existing_positions.values()
+    }
     options = _asset_options(session)
     retained_account_ids: set[int] = set()
     retained_position_ids: set[int] = set()
+    saved_accounts: list[AssetAccountConfig] = []
     for account_index, account_value in enumerate(payload.accounts):
-        account = existing_accounts.get(account_value.id) if account_value.id else None
+        account_name = account_value.name.strip()
+        account = existing_accounts.get(account_value.id) if account_value.id else existing_accounts_by_name.get(account_name)
+        conflicting_account = existing_accounts_by_name.get(account_name)
+        if conflicting_account is not None and account is not conflicting_account:
+            raise ValueError(f"账户名称“{account_name}”已存在")
+        account_was_active = account.is_active if account is not None else False
         if account is None:
             account = AssetAccount(user_id=SINGLE_USER_ID)
             session.add(account)
-        account.name = account_value.name.strip()
+        account.name = account_name
         account.region = account_value.region
         account.currency = account_value.currency.strip()
         account.asset_category_option_id = account_value.asset_category_option_id
         account.asset_category = _option_value(options, account_value.asset_category_option_id, "asset_category")
         account.target_amount = account_value.target_amount
         account.sort_order = account_value.sort_order or account_index
-        account.is_active = True
+        account.is_active = account_was_active if preserve_missing else True
         session.flush()
         retained_account_ids.add(account.id)
+        saved_positions: list[AssetPositionConfig] = []
         for position_index, position_value in enumerate(account_value.positions):
-            position = existing_positions.get(position_value.id) if position_value.id else None
+            position_name = position_value.name.strip()
+            existing_by_name = existing_positions_by_account_name.get((account.id, position_name))
+            position = existing_positions.get(position_value.id) if position_value.id else existing_by_name
+            if existing_by_name is not None and position is not existing_by_name:
+                raise ValueError(f"账户“{account.name}”中已存在持仓“{position_name}”")
+            position_was_active = position.is_active if position is not None else False
             if position is not None and position.asset_account_id != account.id:
                 raise ValueError("持仓不属于指定账户")
             if position is None:
                 position = AssetPosition(user_id=SINGLE_USER_ID, asset_account_id=account.id)
                 session.add(position)
-            position.name = position_value.name.strip()
+            position.name = position_name
             position.asset_class_option_id = position_value.asset_class_option_id
             position.asset_class = _option_value(options, position_value.asset_class_option_id, "asset_class")
             position.purpose_option_id = position_value.purpose_option_id
@@ -174,15 +203,21 @@ def save_asset_config(session: Session, payload: AssetConfigPayload) -> AssetCon
             position.risk_level = _option_value(options, position_value.risk_option_id, "asset_risk")
             position.is_investable = position_value.is_investable
             position.sort_order = position_value.sort_order or position_index
-            position.is_active = True
+            position.is_active = position_was_active if preserve_missing else True
             session.flush()
             retained_position_ids.add(position.id)
-    for account in existing_accounts.values():
-        if account.id not in retained_account_ids:
-            account.is_active = False
-    for position in existing_positions.values():
-        if position.id not in retained_position_ids:
-            position.is_active = False
+            saved_positions.append(position_value.model_copy(update={"id": position.id}))
+        saved_accounts.append(account_value.model_copy(update={
+            "id": account.id,
+            "positions": saved_positions,
+        }))
+    if not preserve_missing:
+        for account in existing_accounts.values():
+            if account.id not in retained_account_ids:
+                account.is_active = False
+        for position in existing_positions.values():
+            if position.id not in retained_position_ids:
+                position.is_active = False
     target_by_risk = {
         item.risk_level: item for item in session.scalars(
             select(AssetAllocationTarget).where(AssetAllocationTarget.user_id == SINGLE_USER_ID)
@@ -196,21 +231,25 @@ def save_asset_config(session: Session, payload: AssetConfigPayload) -> AssetCon
         target.target_percent = value.target_percent
         target.warning_threshold = value.warning_threshold
     session.commit()
+    if preserve_missing:
+        return AssetConfigPayload(accounts=saved_accounts, targets=payload.targets)
     return get_asset_config(session)
 
 
 def save_asset_snapshot(session: Session, payload: AssetSnapshotPayload) -> AssetDashboard:
     if round(sum(item.target_percent for item in payload.targets), 4) != 100:
         raise ValueError("风险目标比例合计必须等于 100%")
+    position_ids = [item.position_id for item in payload.items]
+    if len(position_ids) != len(set(position_ids)):
+        raise ValueError("同一持仓不能重复添加")
     positions = {
         item.id: item for item in session.scalars(
             select(AssetPosition).where(
                 AssetPosition.user_id == SINGLE_USER_ID,
-                AssetPosition.is_active.is_(True),
             )
         )
     }
-    if set(item.position_id for item in payload.items) - set(positions):
+    if set(position_ids) - set(positions):
         raise ValueError("快照包含无效持仓")
     snapshot = session.scalar(
         select(AssetSnapshot).where(
@@ -274,8 +313,11 @@ def _snapshot_totals(
 
 
 def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> AssetDashboard:
-    accounts, active_positions = _accounts_and_positions(session)
+    active_accounts, active_positions = _accounts_and_positions(session)
     options = _asset_options(session)
+    all_accounts = list(session.scalars(
+        select(AssetAccount).where(AssetAccount.user_id == SINGLE_USER_ID)
+    ))
     all_positions = {
         item.id: item for item in session.scalars(
             select(AssetPosition).where(AssetPosition.user_id == SINGLE_USER_ID)
@@ -302,7 +344,7 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
     ) if selected else []
     item_by_position = {item.asset_position_id: item for item in selected_items}
     net_assets, investable_assets = _snapshot_totals(selected_items, all_positions)
-    account_by_id = {account.id: account for account in accounts}
+    account_by_id = {account.id: account for account in all_accounts}
     domestic_assets = sum(
         float(item.amount_cny)
         for item in selected_items
@@ -375,11 +417,26 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
                 investable_assets=round(history_investable, 4),
             )
         )
+    if selected is not None:
+        displayed_positions = [
+            position
+            for position_id in item_by_position
+            if (position := all_positions.get(position_id)) is not None
+        ]
+        displayed_account_ids = {position.asset_account_id for position in displayed_positions}
+        displayed_accounts = [
+            account for account in all_accounts if account.id in displayed_account_ids
+        ]
+    else:
+        displayed_positions = active_positions
+        displayed_accounts = active_accounts
+    displayed_positions.sort(key=lambda item: (item.sort_order, item.id))
+    displayed_accounts.sort(key=lambda item: (item.sort_order, item.id))
     positions_by_account: dict[int, list[AssetPosition]] = {}
-    for position in active_positions:
+    for position in displayed_positions:
         positions_by_account.setdefault(position.asset_account_id, []).append(position)
     dashboard_accounts = []
-    for account in accounts:
+    for account in displayed_accounts:
         dashboard_positions = []
         for position in positions_by_account.get(account.id, []):
             item = item_by_position.get(position.id)

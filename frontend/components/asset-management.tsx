@@ -19,12 +19,14 @@ import type {
   AssetRiskLevel,
   AssetSnapshotPayload,
   ContentOptionItem,
+  ContentOptionType,
 } from "@/lib/types";
 import { CloseIcon, SearchIcon, SettingsIcon, TrashIcon } from "./icons";
 import { NoteDateField } from "./investment-notes";
+import { Tooltip } from "./tooltip";
 
-const PURPOSES: AssetPurpose[] = ["短期日用", "中期稳健", "长期投资", "不参与配置"];
-const RISKS: AssetRiskLevel[] = ["低", "中", "高", "未分类"];
+const PURPOSES: AssetPurpose[] = ["短期日用", "中期稳健", "长期投资"];
+const RISKS: AssetRiskLevel[] = ["低", "中", "高"];
 
 function AssetSelect({
   id,
@@ -117,7 +119,7 @@ function buildAssetBreakdown(
   const amounts = new Map<string, number>();
   dashboard.accounts.forEach((account) => {
     account.positions.forEach((position) => {
-      const label = position[field] || "未分类";
+      const label = position[field] || "未知";
       amounts.set(label, (amounts.get(label) ?? 0) + position.amountCny);
     });
   });
@@ -128,7 +130,13 @@ function buildAssetBreakdown(
     percent: total ? amount / total * 100 : 0,
   }))
     .filter((item) => Math.abs(item.amount) > 0.000001)
-    .sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount));
+    .sort((left, right) => {
+      if (left.amount >= 0 && right.amount < 0) return -1;
+      if (left.amount < 0 && right.amount >= 0) return 1;
+      return left.amount >= 0
+        ? right.amount - left.amount
+        : Math.abs(right.amount) - Math.abs(left.amount);
+    });
 }
 
 function AssetClassBreakdownCard({
@@ -174,12 +182,11 @@ function AssetClassBreakdownCard({
   );
 }
 
-const PURPOSE_COLORS = ["#128052", "#70ad8c", "#d2a24b", "#7c8f86"];
+const PURPOSE_COLORS = ["#128052", "#70ad8c", "#d2a24b"];
 const PURPOSE_COLOR_BY_LABEL = new Map([
   ["长期投资", PURPOSE_COLORS[0]],
   ["短期日用", PURPOSE_COLORS[1]],
   ["中期稳健", PURPOSE_COLORS[2]],
-  ["不参与配置", PURPOSE_COLORS[3]],
 ]);
 
 function PurposePie({ items, comparisonItems = [], label, compact = false }: { items: AssetBreakdownItem[]; comparisonItems?: AssetBreakdownItem[]; label?: string | null; compact?: boolean }) {
@@ -204,20 +211,10 @@ function PurposePie({ items, comparisonItems = [], label, compact = false }: { i
     const end = pointAt(endAngle, radius);
     const middleAngle = (startAngle + endAngle) / 2;
     const bend = pointAt(middleAngle, radius + (compact ? 18 : 20));
-    const naturalRight = Math.cos(middleAngle * Math.PI / 180) >= 0;
-    const isRight = index < 4 ? index % 2 === 0 : naturalRight;
-    const slotY = item.label === "短期日用"
-      ? 238
-      : index === 0 || index === 3
-        ? 225
-        : index === 1
-          ? 84
-          : index === 2
-            ? 48
-            : bend.y;
+    const isRight = Math.cos(middleAngle * Math.PI / 180) >= 0;
     const lineEnd = {
-      x: isRight ? (item.label === "长期投资" ? 370 : 388) : 132,
-      y: slotY,
+      x: isRight ? 388 : 132,
+      y: bend.y,
     };
     return {
       item,
@@ -229,14 +226,25 @@ function PurposePie({ items, comparisonItems = [], label, compact = false }: { i
       isRight,
     };
   });
-  const positionedSlices = slices.map((slice) => {
+  const labelYByName = new Map<string, number>();
+  const labelMinimumY = 46;
+  const labelMaximumY = 238;
+  const preferredGap = 64;
+  [false, true].forEach((isRight) => {
     const sameSide = slices
-      .filter((candidate) => candidate.isRight === slice.isRight)
+      .filter((slice) => slice.isRight === isRight)
       .sort((left, right) => left.bend.y - right.bend.y);
-    const rank = sameSide.findIndex((candidate) => candidate.item.label === slice.item.label);
-    const minimumY = 48 + rank * 58;
-    const maximumY = 252 - (sameSide.length - rank - 1) * 58;
-    return { ...slice, lineEnd: { ...slice.lineEnd, y: Math.max(minimumY, Math.min(maximumY, slice.lineEnd.y)) } };
+    const effectiveGap = sameSide.length > 1
+      ? Math.min(preferredGap, (labelMaximumY - labelMinimumY) / (sameSide.length - 1))
+      : 0;
+    sameSide.forEach((slice, rank) => {
+      const minimumY = labelMinimumY + rank * effectiveGap;
+      const maximumY = labelMaximumY - (sameSide.length - rank - 1) * effectiveGap;
+      labelYByName.set(slice.item.label, Math.max(minimumY, Math.min(maximumY, slice.bend.y)));
+    });
+  });
+  const positionedSlices = slices.map((slice) => {
+    return { ...slice, lineEnd: { ...slice.lineEnd, y: labelYByName.get(slice.item.label) ?? slice.bend.y } };
   });
 
   return positionedSlices.length ? <div className="asset-purpose-pie-panel">
@@ -246,13 +254,9 @@ function PurposePie({ items, comparisonItems = [], label, compact = false }: { i
           {positionedSlices.map(({ item, color, path }) => <path key={item.label} d={path} fill={color} className="asset-purpose-slice"><title>{item.label}：{formatAmount(item.amount)} 万元，占总资产 {item.percent.toFixed(1)}%</title></path>)}
           {positionedSlices.map(({ item, color, edge, lineEnd, isRight }) => {
             const textX = lineEnd.x + (isRight ? 8 : -8);
-            const isShortTerm = item.label === "短期日用";
-            const labelY = isShortTerm ? lineEnd.y + 2 : lineEnd.y - 3;
-            const leaderEndY = isShortTerm ? lineEnd.y - 24 : lineEnd.y;
-            const shortTermLeaderX = lineEnd.x - 42;
-            const leaderPoints = item.label === "短期日用"
-              ? `${edge.x},${edge.y} ${shortTermLeaderX},${edge.y} ${shortTermLeaderX},${leaderEndY}`
-              : `${edge.x},${edge.y} ${edge.x},${lineEnd.y} ${lineEnd.x},${lineEnd.y}`;
+            const labelY = lineEnd.y - 3;
+            const elbowX = centerX + (isRight ? radius + 20 : -(radius + 20));
+            const leaderPoints = `${edge.x},${edge.y} ${elbowX},${lineEnd.y} ${lineEnd.x},${lineEnd.y}`;
             return <g key={`${item.label}-label`}>
               <polyline points={leaderPoints} stroke={color} className="asset-purpose-leader" />
               <text x={textX} y={labelY} textAnchor={isRight ? "start" : "end"} className="asset-purpose-label">
@@ -306,7 +310,6 @@ function PurposeTrendCard({
   const current = comparisonByLabel(currentItems);
   const previous = comparisonByLabel(comparisonItems);
   const labels = Array.from(new Set([...comparisonItems.map((item) => item.label), ...currentItems.map((item) => item.label)]))
-    .filter((label) => label !== "不参与配置")
     .slice(0, 4);
   const x1 = 74;
   const x2 = 566;
@@ -337,51 +340,7 @@ function PurposeTrendCard({
   );
 }
 
-type AssetChangeKind = "added" | "removed" | "unchanged";
-
-interface AssetChangeItem {
-  id: number;
-  name: string;
-  baselineAmount: number;
-  currentAmount: number;
-}
-
-function AssetChangeStat({
-  kind,
-  label,
-  description,
-  items,
-  active,
-  onSelect,
-}: {
-  kind: AssetChangeKind;
-  label: string;
-  description: string;
-  items: AssetChangeItem[];
-  active: boolean;
-  onSelect: () => void;
-}) {
-  return <button type="button" className={`asset-change-stat ${kind}${active ? " active" : ""}`} onClick={onSelect} aria-pressed={active}>
-    <i aria-hidden="true">{kind === "added" ? "＋" : kind === "removed" ? "−" : "="}</i>
-    <span>{label} <b>{items.length}</b> 项<small>{description}</small></span>
-  </button>;
-}
-
-function AssetChangeList({ items }: { items: AssetChangeItem[] }) {
-  return <section className="asset-change-list-panel" aria-live="polite">
-    <div className="asset-change-list-head"><span>名称</span><span>基准金额</span><span>当前金额</span></div>
-    <div className="asset-change-list">
-      {items.length ? items.map((item) => <div key={item.id}>
-        <span title={item.name}>{item.name}</span>
-        <span>{formatAmount(item.baselineAmount)} 万元</span>
-        <span>{formatAmount(item.currentAmount)} 万元</span>
-      </div>) : <p>暂无对应资产项</p>}
-    </div>
-  </section>;
-}
-
 function AssetComparisonDashboard({ current, baseline }: { current: AssetDashboard; baseline: AssetDashboard }) {
-  const [selectedChangeKind, setSelectedChangeKind] = useState<AssetChangeKind>("unchanged");
   const cards = [
     ["总资产", current.summary.netAssets, baseline.summary.netAssets, "total"],
     ["可支配资产", current.summary.investableAssets, baseline.summary.investableAssets, "investable"],
@@ -392,31 +351,6 @@ function AssetComparisonDashboard({ current, baseline }: { current: AssetDashboa
   const baselineAssetClasses = buildAssetBreakdown(baseline, "assetClass");
   const currentPurposes = buildAssetBreakdown(current, "purpose");
   const baselinePurposes = buildAssetBreakdown(baseline, "purpose");
-  const currentPositions = new Map(current.accounts.flatMap((account) => account.positions.map((position) => [position.id, position])));
-  const baselinePositions = new Map(baseline.accounts.flatMap((account) => account.positions.map((position) => [position.id, position])));
-  const addedItems: AssetChangeItem[] = [...currentPositions].filter(([id]) => !baselinePositions.has(id)).map(([id, position]) => ({
-    id,
-    name: position.name,
-    baselineAmount: 0,
-    currentAmount: position.amountCny,
-  }));
-  const removedItems: AssetChangeItem[] = [...baselinePositions].filter(([id]) => !currentPositions.has(id)).map(([id, position]) => ({
-    id,
-    name: position.name,
-    baselineAmount: position.amountCny,
-    currentAmount: 0,
-  }));
-  const unchangedItems: AssetChangeItem[] = [...currentPositions].flatMap(([id, position]) => {
-    const baselinePosition = baselinePositions.get(id);
-    if (!baselinePosition || Math.abs(position.amountCny - baselinePosition.amountCny) >= .005) return [];
-    return [{ id, name: position.name, baselineAmount: baselinePosition.amountCny, currentAmount: position.amountCny }];
-  });
-  const changeGroups = {
-    added: { label: "新增", description: "本期新增的资产项", items: addedItems },
-    removed: { label: "减少", description: "本期减少的资产项", items: removedItems },
-    unchanged: { label: "未变化", description: "金额未发生变化的资产项", items: unchangedItems },
-  } satisfies Record<AssetChangeKind, { label: string; description: string; items: AssetChangeItem[] }>;
-  const selectedChangeGroup = changeGroups[selectedChangeKind];
 
   return <div className="asset-comparison-dashboard">
     <section className="asset-comparison-summary" aria-label="本期变化摘要" data-layout="summary-v2">
@@ -448,23 +382,6 @@ function AssetComparisonDashboard({ current, baseline }: { current: AssetDashboa
 
       <ComparisonPurposeCard currentItems={currentPurposes} baselineItems={baselinePurposes} />
       <ComparisonAssetClassCard currentItems={currentAssetClasses} baselineItems={baselineAssetClasses} />
-      <article className="asset-card asset-trend-card asset-change-detail-card">
-        <header><h2>变化明细</h2></header>
-        <div className="asset-change-detail-body">
-          <div className="asset-change-tabs" role="group" aria-label="选择变化类型">
-            {(Object.keys(changeGroups) as AssetChangeKind[]).map((kind) => <AssetChangeStat
-              key={kind}
-              kind={kind}
-              label={changeGroups[kind].label}
-              description={changeGroups[kind].description}
-              items={changeGroups[kind].items}
-              active={selectedChangeKind === kind}
-              onSelect={() => setSelectedChangeKind(kind)}
-            />)}
-          </div>
-          <AssetChangeList items={selectedChangeGroup.items} />
-        </div>
-      </article>
     </div>
   </div>;
 }
@@ -733,12 +650,17 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
   const [dragOverPosition, setDragOverPosition] = useState<{ accountIndex: number; positionIndex: number } | null>(null);
 
   useEffect(() => {
-    Promise.all([getAssetConfig(), loadAssetOptions()])
-      .then(([value, optionValues]) => {
-        const currentByPosition = new Map(dashboard.accounts.flatMap((account) => account.positions.map((position) => [position.id, position])));
+    Promise.all([
+      getAssetConfig(),
+      loadAssetOptions(),
+      mode === "edit" ? Promise.resolve(dashboard) : getAssetDashboard(),
+    ])
+      .then(([value, optionValues, sourceDashboard]) => {
+        const currentByPosition = new Map(sourceDashboard.accounts.flatMap((account) => account.positions.map((position) => [position.id, position])));
         setConfig(value);
         setOptions(optionValues);
-        setAccounts(value.accounts.map((account) => ({
+        setTargets(sourceDashboard.allocations.map((item) => ({ riskLevel: item.riskLevel, targetPercent: item.targetPercent, warningThreshold: item.warningThreshold })));
+        setAccounts(sourceDashboard.accounts.map((account) => ({
           ...account,
           positions: account.positions.map((position) => {
             const current = position.id ? currentByPosition.get(position.id) : undefined;
@@ -747,7 +669,7 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
         })));
       })
       .catch(() => setError("无法读取资产记录配置"));
-  }, [dashboard]);
+  }, [dashboard, mode]);
 
   function updateAccount(index: number, patch: Partial<RecordAccount>) {
     setAccounts((current) => current?.map((account, accountIndex) => accountIndex === index ? { ...account, ...patch } : account) ?? null);
@@ -791,6 +713,19 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
       setError("请为所有持仓选择风险等级和资金用途后再保存。");
       return;
     }
+    const accountNames = accounts.map((account) => account.name.trim());
+    if (new Set(accountNames).size !== accountNames.length) {
+      setError("账户名称不能重复。");
+      return;
+    }
+    const duplicatePositionAccount = accounts.find((account) => {
+      const names = account.positions.map((position) => position.name.trim());
+      return new Set(names).size !== names.length;
+    });
+    if (duplicatePositionAccount) {
+      setError(`账户“${duplicatePositionAccount.name}”中存在同名持仓。`);
+      return;
+    }
     setSaving(true);
     try {
       const savedConfig = await updateAssetConfig({
@@ -811,16 +746,26 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
             sortOrder: positionIndex,
           })),
         })),
-      });
-      const draftByIdentity = new Map(accounts.flatMap((account) => account.positions.map((position) => [`${account.name}\u0000${position.name}`, position])));
+      }, mode === "edit");
+      const savedAccountsById = new Map(savedConfig.accounts.filter((account) => account.id !== null).map((account) => [account.id, account]));
       const payload: AssetSnapshotPayload = {
         snapshotDate,
         note: note.trim() || null,
         targets,
-        items: savedConfig.accounts.flatMap((account) => account.positions.map((position) => {
-          const draft = draftByIdentity.get(`${account.name}\u0000${position.name}`);
-          return { positionId: position.id as number, amount: Number(draft?.amount || 0), fxRate: draft?.fxRate || 1, expectedAnnualRate: draft?.expectedAnnualRate ?? null };
-        })),
+        items: accounts.flatMap((account) => {
+          const savedAccount = account.id !== null
+            ? savedAccountsById.get(account.id)
+            : savedConfig.accounts.find((item) => item.name === account.name);
+          if (!savedAccount) throw new Error(`无法保存账户“${account.name}”`);
+          const savedPositionsById = new Map(savedAccount.positions.filter((position) => position.id !== null).map((position) => [position.id, position]));
+          return account.positions.map((position) => {
+            const savedPosition = position.id !== null
+              ? savedPositionsById.get(position.id)
+              : savedAccount.positions.find((item) => item.name === position.name);
+            if (!savedPosition?.id) throw new Error(`无法保存持仓“${position.name}”`);
+            return { positionId: savedPosition.id, amount: Number(position.amount || 0), fxRate: position.fxRate || 1, expectedAnnualRate: position.expectedAnnualRate ?? null };
+          });
+        }),
       };
       onSaved(await saveAssetSnapshot(payload));
     } catch (reason) {
@@ -912,7 +857,7 @@ function AssetOptionEditor({ title, values, required, onChange, className = "" }
     setDragOverIndex(null);
   }
 
-  return <section className={`asset-option-editor ${className}`.trim()}><header><h3>{title}</h3></header><div>{values.map((item, index) => <div className={`asset-option-row${draggedIndex === index ? " dragging" : ""}${dragOverIndex === index ? " drag-over" : ""}`} key={item.id ?? `new-${index}`} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverIndex(index); }} onDrop={(event) => dropAt(event, index)}><button className="drag-handle" type="button" draggable aria-label={`拖动调整${item.value}顺序`} title="拖动调整顺序" onDragStart={(event) => { setDraggedIndex(index); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", String(index)); }} onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}><span aria-hidden="true">⠿</span></button><input aria-label={`${title}选项 ${index + 1}`} value={item.value} disabled={required.includes(item.value)} onChange={(event) => onChange(values.map((value, itemIndex) => itemIndex === index ? { ...value, value: event.target.value } : value))} /><div className="asset-option-actions"><button className="delete" type="button" aria-label={`删除${item.value}`} title="删除" disabled={required.includes(item.value)} onClick={() => onChange(values.filter((_, itemIndex) => itemIndex !== index))}><TrashIcon /></button></div></div>)}<button className="asset-option-add" type="button" onClick={() => onChange([...values, { id: null, value: "" }])}>＋ 添加</button></div></section>;
+  return <section className={`asset-option-editor ${className}`.trim()}><header><h3>{title}</h3></header><div>{values.map((item, index) => <div className={`asset-option-row${draggedIndex === index ? " dragging" : ""}${dragOverIndex === index ? " drag-over" : ""}`} key={item.id ?? `new-${index}`} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverIndex(index); }} onDrop={(event) => dropAt(event, index)}><button className="drag-handle" type="button" draggable aria-label={`拖动调整${item.value}顺序`} title="拖动调整顺序" onDragStart={(event) => { setDraggedIndex(index); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", String(index)); }} onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}><span aria-hidden="true">⠿</span></button><input aria-label={`${title}选项 ${index + 1}`} value={item.value} disabled={required.includes(item.value)} onChange={(event) => onChange(values.map((value, itemIndex) => itemIndex === index ? { ...value, value: event.target.value } : value))} /><div className="asset-option-actions"><Tooltip content={item.inUse ? "仍被账户或持仓使用的选项不能删除" : null}><button className="delete" type="button" aria-label={`删除${item.value}`} disabled={item.inUse || required.includes(item.value)} onClick={() => onChange(values.filter((_, itemIndex) => itemIndex !== index))}><TrashIcon /></button></Tooltip></div></div>)}<button className="asset-option-add" type="button" onClick={() => onChange([...values, { id: null, value: "" }])}>＋ 添加</button></div></section>;
 }
 
 function OptionsDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
@@ -923,14 +868,29 @@ function OptionsDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!options) return;
+    const updates: Array<[string, ContentOptionType, ContentOptionItem[]]> = [
+      ["资产类别", "asset_category", options.assetCategories],
+      ["投资品种", "asset_class", options.assetClasses],
+      ["资金用途", "asset_purpose", options.purposes],
+      ["风险等级", "asset_risk", options.risks],
+    ];
+    const invalid = updates.find(([, , items]) => {
+      const normalized = items.map((item) => item.value.trim());
+      return normalized.some((value) => !value) || new Set(normalized).size !== normalized.length;
+    });
+    if (invalid) {
+      setError(`${invalid[0]}：选项不能为空或重复`);
+      return;
+    }
     setSaving(true); setError(null);
     try {
-      await Promise.all([
-        updateContentOptions("asset_category", options.assetCategories),
-        updateContentOptions("asset_class", options.assetClasses),
-        updateContentOptions("asset_purpose", options.purposes),
-        updateContentOptions("asset_risk", options.risks),
-      ]);
+      await Promise.all(updates.map(async ([label, optionType, items]) => {
+        try {
+          await updateContentOptions(optionType, items);
+        } catch (reason) {
+          throw new Error(`${label}：${reason instanceof Error ? reason.message : "保存失败"}`);
+        }
+      }));
       onSaved();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "保存配置失败"); }
     finally { setSaving(false); }
@@ -1158,7 +1118,7 @@ export function AssetManagement() {
                 const warning = Boolean(deviation && deviation.deviationPercent > 0 && deviation.riskLevel !== "低");
                 return (
                   <div className="asset-risk-row" key={item.riskLevel}>
-                    <strong>{item.riskLevel}风险</strong>
+                    <div className="asset-risk-label"><strong>{item.riskLevel}风险</strong><span>{formatAmount(item.amount)} 万元</span></div>
                     <div className="asset-risk-meter">
                       <div className="asset-risk-values"><span>目标 {item.targetPercent.toFixed(0)}%</span><strong style={{ left: `${Math.min(Math.max(item.actualPercent, 0), 100)}%` }}>实际 {item.actualPercent.toFixed(0)}%</strong></div>
                       <div className="asset-risk-bars"><span className="target" style={{ width: `${Math.min(item.targetPercent, 100)}%` }} /><span className="actual" style={{ width: `${Math.min(item.actualPercent, 100)}%` }} /></div>
@@ -1240,12 +1200,14 @@ function ComparisonAssetClassCard({ currentItems, baselineItems }: { currentItem
           const after = current.get(label);
           const delta = (after?.percent ?? 0) - (before?.percent ?? 0);
           const amountDelta = (after?.amount ?? 0) - (before?.amount ?? 0);
+          const percentUnchanged = Math.abs(delta) < .005;
+          const amountUnchanged = Math.abs(amountDelta) < .005;
           return <tr key={label}>
             <th><strong>{label}</strong></th>
             <td>{formatAmount(before?.amount ?? 0)}</td>
             <td>{formatAmount(after?.amount ?? 0)}</td>
-            <td className={delta >= 0 ? "up" : "down"}>{Math.abs(delta) < .005 ? "未变化" : `${delta > 0 ? "↑" : "↓"} ${Math.abs(delta).toFixed(2)}%`}</td>
-            <td className={amountDelta >= 0 ? "up" : "down"}>{formatSigned(amountDelta)}</td>
+            <td className={percentUnchanged || delta > 0 ? "up" : "down"}>{percentUnchanged ? "未变化" : `${delta > 0 ? "↑" : "↓"} ${Math.abs(delta).toFixed(2)}%`}</td>
+            <td className={amountUnchanged || amountDelta > 0 ? "up" : "down"}>{formatSigned(amountUnchanged ? 0 : amountDelta)}</td>
           </tr>;
         })}</tbody>
       </table>
@@ -1257,7 +1219,6 @@ function ComparisonPurposeCard({ currentItems, baselineItems }: { currentItems: 
   const current = comparisonByLabel(currentItems);
   const baseline = comparisonByLabel(baselineItems);
   const labels = Array.from(new Set([...currentItems.map((item) => item.label), ...baselineItems.map((item) => item.label)]))
-    .filter((label) => label !== "不参与配置")
     .sort((left, right) => (current.get(right)?.percent ?? 0) - (current.get(left)?.percent ?? 0));
 
   return <article className="asset-card asset-purpose-delta-card">
@@ -1266,13 +1227,14 @@ function ComparisonPurposeCard({ currentItems, baselineItems }: { currentItems: 
       const before = baseline.get(label);
       const after = current.get(label);
       const delta = (after?.percent ?? 0) - (before?.percent ?? 0);
+      const unchanged = Math.abs(delta) < .005;
       return <div className="asset-purpose-delta-row" key={label}>
         <div><strong>{label}</strong><span>{formatAmount(after?.amount ?? 0)} 万元</span></div>
         <div className="asset-purpose-paired-bars">
           <span><i style={{ width: `${Math.min(Math.abs(before?.percent ?? 0), 100)}%` }} /></span>
           <span><i style={{ width: `${Math.min(Math.abs(after?.percent ?? 0), 100)}%` }} /></span>
         </div>
-        <div className="asset-purpose-delta-values"><span>{(before?.percent ?? 0).toFixed(1)}% → {(after?.percent ?? 0).toFixed(1)}%</span><b className={delta >= 0 ? "up" : "down"}>{Math.abs(delta) < .005 ? "未变化" : formatSigned(delta, "%")}</b></div>
+        <div className="asset-purpose-delta-values"><span>{(before?.percent ?? 0).toFixed(1)}% → {(after?.percent ?? 0).toFixed(1)}%</span><b className={unchanged || delta > 0 ? "up" : "down"}>{unchanged ? "未变化" : formatSigned(delta, "%")}</b></div>
       </div>;
     })}</div>
   </article>;

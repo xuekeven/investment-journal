@@ -12,6 +12,7 @@ from app.database import get_session_factory
 from app.database_models import (
     AssetAccount,
     AssetPosition,
+    AssetSnapshotItem,
     CalculatedMetric,
     ContentOption,
     FeeHistory,
@@ -79,8 +80,8 @@ DEFAULT_CONTENT_OPTIONS: dict[ContentOptionType, tuple[str, ...]] = {
         "红利策略",
         "交易工具",
     ),
-    ContentOptionType.ASSET_PURPOSE: ("短期日用", "中期稳健", "长期投资", "不参与配置"),
-    ContentOptionType.ASSET_RISK: ("低", "中", "高", "未分类"),
+    ContentOptionType.ASSET_PURPOSE: ("短期日用", "中期稳健", "长期投资"),
+    ContentOptionType.ASSET_RISK: ("低", "中", "高"),
     ContentOptionType.ASSET_REGION: ("境内", "境外"),
     ContentOptionType.ASSET_CATEGORY: ("股票", "基金", "货币", "债券", "存款", "信用"),
     ContentOptionType.ASSET_CLASS: (
@@ -1107,7 +1108,63 @@ class PostgresFundRepository(FundRepository):
                 )
                 .order_by(ContentOption.sort_order.asc(), ContentOption.id.asc())
             ))
-            return [ContentOptionItem(id=row.id, value=row.value) for row in rows]
+            in_use_ids = self._content_option_ids_in_use(session, option_type)
+            return [
+                ContentOptionItem(id=row.id, value=row.value, in_use=row.id in in_use_ids)
+                for row in rows
+            ]
+
+    @staticmethod
+    def _content_option_ids_in_use(
+        session: Session, option_type: ContentOptionType
+    ) -> set[int]:
+        if option_type == ContentOptionType.INVESTMENT_NOTE_SOURCE:
+            statement = select(InvestmentNote.source_option_id).where(
+                InvestmentNote.user_id == SINGLE_USER_ID,
+                InvestmentNote.source_option_id.is_not(None)
+            )
+        elif option_type == ContentOptionType.KNOWLEDGE_CATEGORY:
+            statement = select(KnowledgeArticle.category_option_id).where(
+                KnowledgeArticle.user_id == SINGLE_USER_ID
+            )
+        elif option_type == ContentOptionType.ASSET_CATEGORY:
+            has_snapshot = (
+                select(AssetSnapshotItem.id)
+                .join(
+                    AssetPosition,
+                    AssetSnapshotItem.asset_position_id == AssetPosition.id,
+                )
+                .where(AssetPosition.asset_account_id == AssetAccount.id)
+                .exists()
+            )
+            statement = select(AssetAccount.asset_category_option_id).where(
+                AssetAccount.user_id == SINGLE_USER_ID,
+                has_snapshot,
+            )
+        elif option_type in {
+            ContentOptionType.ASSET_CLASS,
+            ContentOptionType.ASSET_PURPOSE,
+            ContentOptionType.ASSET_RISK,
+        }:
+            option_column = {
+                ContentOptionType.ASSET_CLASS: AssetPosition.asset_class_option_id,
+                ContentOptionType.ASSET_PURPOSE: AssetPosition.purpose_option_id,
+                ContentOptionType.ASSET_RISK: AssetPosition.risk_option_id,
+            }[option_type]
+            has_snapshot = select(AssetSnapshotItem.id).where(
+                AssetSnapshotItem.asset_position_id == AssetPosition.id
+            ).exists()
+            statement = select(option_column).where(
+                AssetPosition.user_id == SINGLE_USER_ID,
+                has_snapshot,
+            )
+        else:
+            return set()
+        return {
+            option_id
+            for option_id in session.scalars(statement).all()
+            if option_id is not None
+        }
 
     def set_content_options(
         self, option_type: ContentOptionType, values: list[str]
@@ -1180,13 +1237,50 @@ class PostgresFundRepository(FundRepository):
             removed = set(existing) - retained_ids
             if removed:
                 try:
+                    position_option_column = {
+                        ContentOptionType.ASSET_CLASS: AssetPosition.asset_class_option_id,
+                        ContentOptionType.ASSET_PURPOSE: AssetPosition.purpose_option_id,
+                        ContentOptionType.ASSET_RISK: AssetPosition.risk_option_id,
+                    }.get(option_type)
+                    if position_option_column is not None:
+                        has_snapshot = select(AssetSnapshotItem.id).where(
+                            AssetSnapshotItem.asset_position_id == AssetPosition.id
+                        ).exists()
+                        session.execute(
+                            delete(AssetPosition).where(
+                                position_option_column.in_(removed),
+                                ~has_snapshot,
+                            )
+                        )
+                        session.flush()
+                    elif option_type == ContentOptionType.ASSET_CATEGORY:
+                        has_snapshot = (
+                            select(AssetSnapshotItem.id)
+                            .join(
+                                AssetPosition,
+                                AssetSnapshotItem.asset_position_id == AssetPosition.id,
+                            )
+                            .where(AssetPosition.asset_account_id == AssetAccount.id)
+                            .exists()
+                        )
+                        session.execute(
+                            delete(AssetAccount).where(
+                                AssetAccount.asset_category_option_id.in_(removed),
+                                ~has_snapshot,
+                            )
+                        )
+                        session.flush()
                     session.execute(delete(ContentOption).where(ContentOption.id.in_(removed)))
                     session.flush()
                 except Exception as exc:
                     session.rollback()
                     raise ValueError("仍被账户或持仓使用的选项不能删除") from exc
             session.commit()
-            return [ContentOptionItem(id=row.id, value=row.value) for row in rows]
+            in_use_ids = self._content_option_ids_in_use(session, option_type)
+            return [
+                ContentOptionItem(id=row.id, value=row.value, in_use=row.id in in_use_ids)
+                for row in rows
+            ]
 
     def list_notes(
         self,

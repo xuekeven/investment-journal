@@ -235,6 +235,7 @@ class ContentOptionType(str, Enum):
 class ContentOptionItem(ApiModel):
     id: int | None = None
     value: str = Field(min_length=1, max_length=200)
+    in_use: bool = False
 
 
 class ContentOptionList(ApiModel):

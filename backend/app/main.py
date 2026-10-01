@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -372,12 +372,19 @@ def asset_config(session: SessionDep) -> AssetConfigPayload:
 
 
 @app.put(f"{settings.api_prefix}/assets/config", response_model=AssetConfigPayload)
-def update_asset_config(payload: AssetConfigPayload, session: SessionDep) -> AssetConfigPayload:
+def update_asset_config(
+    payload: AssetConfigPayload,
+    session: SessionDep,
+    preserve_missing: bool = False,
+) -> AssetConfigPayload:
     try:
-        return save_asset_config(session, payload)
+        return save_asset_config(session, payload, preserve_missing=preserve_missing)
     except ValueError as exc:
         session.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=422, detail="账户或持仓名称不能重复") from exc
 
 
 @app.post(f"{settings.api_prefix}/assets/snapshots", response_model=AssetDashboard)
@@ -387,6 +394,9 @@ def update_asset_snapshot(payload: AssetSnapshotPayload, session: SessionDep) ->
     except ValueError as exc:
         session.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=422, detail="同一持仓不能重复添加") from exc
 
 
 @app.get(f"{settings.api_prefix}/sync-tasks")

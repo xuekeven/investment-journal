@@ -106,6 +106,7 @@ export type ContentOptionType = "investment_note_source" | "knowledge_category" 
 export interface ContentOptionItem {
   id: number | null;
   value: string;
+  inUse?: boolean;
 }
 
 export interface ContentOptionResponse {
@@ -218,6 +219,7 @@ export interface AssetDashboardAccount {
   region: AssetRegion;
   currency: string;
   assetCategory: string;
+  assetCategoryOptionId: number;
   targetAmount: number | null;
   sortOrder: number;
   currentAmount: number;

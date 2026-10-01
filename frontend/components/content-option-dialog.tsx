@@ -5,6 +5,7 @@ import type { DragEvent, FormEvent } from "react";
 import type { ContentOptionItem } from "@/lib/types";
 
 import { CloseIcon, TrashIcon } from "./icons";
+import { Tooltip } from "./tooltip";
 
 type ContentOptionDialogProps = {
   pageTitle: string;
@@ -79,8 +80,8 @@ export function ContentOptionDialog({
     try {
       await onSave(normalized);
       onClose();
-    } catch {
-      setError("保存失败，请检查数据服务后重试。");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "保存失败，请检查数据服务后重试。");
     } finally {
       setSaving(false);
     }
@@ -132,7 +133,9 @@ export function ContentOptionDialog({
                   aria-label={`${itemLabel} ${index + 1}`}
                   placeholder={`请输入${itemLabel}`}
                 />
-                <button className="danger" type="button" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={draft.length === 1 || saving} aria-label={`删除${item.value || itemLabel}`} title="删除"><TrashIcon /></button>
+                <Tooltip className="content-option-delete" content={item.inUse ? "仍被账户或持仓使用的选项不能删除" : null}>
+                  <button className="danger" type="button" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={item.inUse || draft.length === 1 || saving} aria-label={`删除${item.value || itemLabel}`}><TrashIcon /></button>
+                </Tooltip>
               </div>
             ))}
             </div>

@@ -65,7 +65,10 @@ async function putJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`);
+    const responseBody = await response.json().catch(() => null) as {
+      detail?: string;
+    } | null;
+    throw new Error(responseBody?.detail ?? `API request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
 }
@@ -232,8 +235,9 @@ export function getAssetConfig(signal?: AbortSignal): Promise<AssetConfig> {
   return getJson<AssetConfig>("/assets/config", signal);
 }
 
-export function updateAssetConfig(payload: AssetConfig): Promise<AssetConfig> {
-  return sendJson<AssetConfig>("/assets/config", "PUT", payload);
+export function updateAssetConfig(payload: AssetConfig, preserveMissing = false): Promise<AssetConfig> {
+  const query = preserveMissing ? "?preserve_missing=true" : "";
+  return sendJson<AssetConfig>(`/assets/config${query}`, "PUT", payload);
 }
 
 export function saveAssetSnapshot(payload: AssetSnapshotPayload): Promise<AssetDashboard> {
