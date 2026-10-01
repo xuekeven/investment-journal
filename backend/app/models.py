@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -166,6 +166,7 @@ class InvestmentNotePayload(ApiModel):
     category: InvestmentNoteCategory
     action: InvestmentNoteAction | None = None
     source_name: str | None = Field(default=None, max_length=200)
+    source_option_id: int | None = None
     source_url: str | None = None
     source_excerpt: str | None = None
     own_summary: str | None = None
@@ -197,6 +198,7 @@ class KnowledgeSource(ApiModel):
 class KnowledgeArticlePayload(ApiModel):
     title: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=80)
+    category_option_id: int | None = None
     content_markdown: str = ""
     tags: list[str] = Field(default_factory=list, max_length=20)
     sources: list[KnowledgeSource] = Field(default_factory=list, max_length=20)
@@ -212,6 +214,7 @@ class KnowledgeArticleUpdate(KnowledgeArticlePayload):
 
 class KnowledgeCategoryOrder(ApiModel):
     category: str = Field(min_length=1, max_length=80)
+    category_option_id: int | None = None
     article_ids: list[int] = Field(default_factory=list)
 
 
@@ -229,13 +232,26 @@ class ContentOptionType(str, Enum):
     ASSET_CATEGORY = "asset_category"
 
 
+class ContentOptionItem(ApiModel):
+    id: int | None = None
+    value: str = Field(min_length=1, max_length=200)
+
+
 class ContentOptionList(ApiModel):
     option_type: ContentOptionType
     values: list[str]
+    items: list[ContentOptionItem] = Field(default_factory=list)
 
 
 class ContentOptionUpdate(ApiModel):
-    values: list[str] = Field(min_length=1, max_length=50)
+    values: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    items: list[ContentOptionItem] | None = Field(default=None, min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def require_values_or_items(self) -> "ContentOptionUpdate":
+        if self.values is None and self.items is None:
+            raise ValueError("values or items is required")
+        return self
 
 
 class KnowledgeArticleItem(KnowledgeArticlePayload):
@@ -250,8 +266,11 @@ class AssetPositionConfig(ApiModel):
     id: int | None = None
     name: str = Field(min_length=1, max_length=160)
     asset_class: str = Field(min_length=1, max_length=64)
+    asset_class_option_id: int
     purpose: str = Field(min_length=1, max_length=24)
+    purpose_option_id: int
     risk_level: str = Field(min_length=1, max_length=16)
+    risk_option_id: int
     is_investable: bool = True
     sort_order: int = 0
 
@@ -262,6 +281,7 @@ class AssetAccountConfig(ApiModel):
     region: str = Field(min_length=1, max_length=16)
     currency: str = Field(default="人民币", min_length=1, max_length=16)
     asset_category: str = Field(default="基金", min_length=1, max_length=64)
+    asset_category_option_id: int
     target_amount: float | None = None
     sort_order: int = 0
     positions: list[AssetPositionConfig] = Field(default_factory=list)
@@ -306,6 +326,7 @@ class AssetDashboardAccount(ApiModel):
     region: str
     currency: str
     asset_category: str
+    asset_category_option_id: int
     target_amount: float | None = None
     sort_order: int
     current_amount: float
@@ -330,6 +351,7 @@ class AssetAllocationItem(ApiModel):
 
 
 class AssetHistoryPoint(ApiModel):
+    snapshot_id: int
     snapshot_date: date
     net_assets: float
     investable_assets: float

@@ -53,7 +53,7 @@ def test_frontend_serves_spa_fallback() -> None:
     response = client.get("/some/client/route")
     assert response.status_code == 200
     assert "<div id=\"root\"></div>" in response.text
-    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
 
 
 def test_frontend_serves_built_asset() -> None:
@@ -258,10 +258,11 @@ def test_content_options_round_trip() -> None:
         json={"values": ["自我总结", "测试来源", "测试来源"]},
     )
     assert response.status_code == 200
-    assert response.json() == {
-        "optionType": "investment_note_source",
-        "values": ["自我总结", "测试来源"],
-    }
+    body = response.json()
+    assert body["optionType"] == "investment_note_source"
+    assert body["values"] == ["自我总结", "测试来源"]
+    assert [item["value"] for item in body["items"]] == ["自我总结", "测试来源"]
+    assert all(isinstance(item["id"], int) for item in body["items"])
     assert client.put(
         "/api/v1/content-options/investment_note_source", json={"values": []}
     ).status_code == 422
@@ -270,6 +271,76 @@ def test_content_options_round_trip() -> None:
         json={"values": source_defaults},
     )
     assert restored.status_code == 200
+
+
+def test_option_renames_follow_ids_in_notes_and_knowledge() -> None:
+    note_options = client.get(
+        "/api/v1/content-options/investment_note_source"
+    ).json()["items"]
+    note_option = note_options[0]
+    note = client.post(
+        "/api/v1/notes",
+        json={
+            "noteDate": "2026-09-29",
+            "title": "来源选项 ID 联动测试",
+            "category": "实时",
+            "action": "观察",
+            "sourceOptionId": note_option["id"],
+            "sourceName": note_option["value"],
+        },
+    ).json()
+    renamed_note_options = [
+        {**item, "value": "重命名后的来源" if item["id"] == note_option["id"] else item["value"]}
+        for item in note_options
+    ]
+    response = client.put(
+        "/api/v1/content-options/investment_note_source",
+        json={"items": renamed_note_options},
+    )
+    assert response.status_code == 200
+    renamed_note = next(
+        item for item in client.get("/api/v1/notes").json() if item["id"] == note["id"]
+    )
+    assert renamed_note["sourceName"] == "重命名后的来源"
+    assert client.delete(f"/api/v1/notes/{note['id']}").status_code == 200
+    assert client.put(
+        "/api/v1/content-options/investment_note_source",
+        json={"items": note_options},
+    ).status_code == 200
+
+    category_options = client.get(
+        "/api/v1/content-options/knowledge_category"
+    ).json()["items"]
+    category_option = category_options[0]
+    article = client.post(
+        "/api/v1/knowledge",
+        json={
+            "title": "分类选项 ID 联动测试",
+            "categoryOptionId": category_option["id"],
+            "category": category_option["value"],
+            "contentMarkdown": "测试正文",
+        },
+    ).json()
+    renamed_category_options = [
+        {**item, "value": "重命名后的分类" if item["id"] == category_option["id"] else item["value"]}
+        for item in category_options
+    ]
+    response = client.put(
+        "/api/v1/content-options/knowledge_category",
+        json={"items": renamed_category_options},
+    )
+    assert response.status_code == 200
+    renamed_article = next(
+        item
+        for item in client.get("/api/v1/knowledge").json()
+        if item["id"] == article["id"]
+    )
+    assert renamed_article["category"] == "重命名后的分类"
+    assert client.delete(f"/api/v1/knowledge/{article['id']}").status_code == 200
+    assert client.put(
+        "/api/v1/content-options/knowledge_category",
+        json={"items": category_options},
+    ).status_code == 200
 
 
 def test_knowledge_articles_round_trip() -> None:

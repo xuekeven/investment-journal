@@ -8,6 +8,7 @@ import {
   readFilterPreferences,
   writeFilterPreferences,
 } from "@/lib/filter-preferences";
+import { useModalScrollLock } from "@/lib/use-modal-scroll-lock";
 import {
   calculateQdiiPurchaseLimits,
   EXCHANGES,
@@ -17,6 +18,7 @@ import {
   VENUES,
 } from "@/lib/fund-list";
 import type { FundSortKey, SortDirection, VenueFilter } from "@/lib/fund-list";
+import { calculateRecurringInvestmentTotals } from "@/lib/fund-tag-values";
 import type {
   DataFreshness,
   FundComparisonRow,
@@ -167,6 +169,8 @@ function SingleSelectFilter({
 }
 
 export function ComparisonDashboard() {
+  useModalScrollLock();
+
   const [initialFilters] = useState(readFilterPreferences);
   const [activePage, setActivePage] = useState<"funds" | "notes" | "knowledge" | "assets">(
     () => window.location.hash === "#notes"
@@ -400,6 +404,10 @@ export function ComparisonDashboard() {
 
   const qdiiPurchaseLimits = useMemo(
     () => calculateQdiiPurchaseLimits(visibleFunds),
+    [visibleFunds],
+  );
+  const recurringInvestmentTotals = useMemo(
+    () => calculateRecurringInvestmentTotals(visibleFunds),
     [visibleFunds],
   );
   const primaryFreshness = venue === "场内"
@@ -940,10 +948,22 @@ export function ComparisonDashboard() {
                 <p className="fund-purchase-limit">
                   <span className="status-dot" />
                   <span className="fund-purchase-limit-copy">
-                    <span>共可购买</span>
+                    <span>可定投</span>
                     <strong>{formatPurchaseLimit(qdiiPurchaseLimits.cny)}</strong>
                     <span>人民币</span>
                     <strong>{formatPurchaseLimit(qdiiPurchaseLimits.usd)}</strong>
+                    <span>美元</span>
+                  </span>
+                </p>
+              )}
+              {venue === "场外" && (
+                <p className="fund-purchase-limit">
+                  <span className="status-dot" />
+                  <span className="fund-purchase-limit-copy">
+                    <span>已定投</span>
+                    <strong>{formatPurchaseLimit(recurringInvestmentTotals.cny)}</strong>
+                    <span>人民币</span>
+                    <strong>{formatPurchaseLimit(recurringInvestmentTotals.usd)}</strong>
                     <span>美元</span>
                   </span>
                 </p>

@@ -4,6 +4,7 @@ import type {
   AssetSnapshotPayload,
   ComparisonResponse,
   ContentOptionResponse,
+  ContentOptionItem,
   ContentOptionType,
   FundListResponse,
   FundTag,
@@ -165,9 +166,10 @@ export function getContentOptions(
 
 export function updateContentOptions(
   optionType: ContentOptionType,
-  values: string[],
+  values: string[] | ContentOptionItem[],
 ): Promise<ContentOptionResponse> {
-  return putJson<ContentOptionResponse>(`/content-options/${optionType}`, { values });
+  const usesIds = values.length > 0 && typeof values[0] !== "string";
+  return putJson<ContentOptionResponse>(`/content-options/${optionType}`, usesIds ? { items: values } : { values });
 }
 
 
@@ -221,8 +223,9 @@ export function deleteKnowledgeArticle(articleId: number): Promise<{ deleted: bo
   return sendJson<{ deleted: boolean }>(`/knowledge/${articleId}`, "DELETE");
 }
 
-export function getAssetDashboard(signal?: AbortSignal): Promise<AssetDashboard> {
-  return getJson<AssetDashboard>("/assets", signal);
+export function getAssetDashboard(snapshotId?: number, signal?: AbortSignal): Promise<AssetDashboard> {
+  const query = snapshotId === undefined ? "" : `?snapshot_id=${encodeURIComponent(snapshotId)}`;
+  return getJson<AssetDashboard>(`/assets${query}`, signal);
 }
 
 export function getAssetConfig(signal?: AbortSignal): Promise<AssetConfig> {

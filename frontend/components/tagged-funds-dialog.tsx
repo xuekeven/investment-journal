@@ -124,8 +124,6 @@ export function TaggedFundsDialog({
     const previousFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
 
     function closeOnEscape(event: KeyboardEvent) {
@@ -135,7 +133,6 @@ export function TaggedFundsDialog({
     window.addEventListener("keydown", closeOnEscape);
     return () => {
       window.removeEventListener("keydown", closeOnEscape);
-      document.body.style.overflow = previousOverflow;
       previousFocus?.focus();
     };
   }, [onClose]);

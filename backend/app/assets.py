@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database_models import (
     AssetAccount,
     AssetAllocationTarget,
+    ContentOption,
     AssetPosition,
     AssetSnapshot,
     AssetSnapshotItem,
@@ -28,6 +29,26 @@ from app.models import (
 
 SINGLE_USER_ID = "default"
 RISK_ORDER = ("低", "中", "高")
+
+
+def _asset_options(session: Session) -> dict[int, ContentOption]:
+    return {
+        item.id: item for item in session.scalars(
+            select(ContentOption).where(
+                ContentOption.user_id == SINGLE_USER_ID,
+                ContentOption.option_type.in_((
+                    "asset_category", "asset_class", "asset_purpose", "asset_risk"
+                )),
+            )
+        )
+    }
+
+
+def _option_value(options: dict[int, ContentOption], option_id: int, expected_type: str) -> str:
+    option = options.get(option_id)
+    if option is None or option.option_type != expected_type:
+        raise ValueError("资产配置引用了无效选项")
+    return option.value
 
 
 def _accounts_and_positions(session: Session) -> tuple[list[AssetAccount], list[AssetPosition]]:
@@ -55,6 +76,7 @@ def _accounts_and_positions(session: Session) -> tuple[list[AssetAccount], list[
 
 def get_asset_config(session: Session) -> AssetConfigPayload:
     accounts, positions = _accounts_and_positions(session)
+    options = _asset_options(session)
     positions_by_account: dict[int, list[AssetPosition]] = {}
     for position in positions:
         positions_by_account.setdefault(position.asset_account_id, []).append(position)
@@ -72,16 +94,20 @@ def get_asset_config(session: Session) -> AssetConfigPayload:
                 name=account.name,
                 region=account.region,
                 currency=account.currency,
-                asset_category=account.asset_category,
+                asset_category=_option_value(options, account.asset_category_option_id, "asset_category"),
+                asset_category_option_id=account.asset_category_option_id,
                 target_amount=float(account.target_amount) if account.target_amount is not None else None,
                 sort_order=account.sort_order,
                 positions=[
                     {
                         "id": position.id,
                         "name": position.name,
-                        "asset_class": position.asset_class,
-                        "purpose": position.purpose,
-                        "risk_level": position.risk_level,
+                        "asset_class": _option_value(options, position.asset_class_option_id, "asset_class"),
+                        "asset_class_option_id": position.asset_class_option_id,
+                        "purpose": _option_value(options, position.purpose_option_id, "asset_purpose"),
+                        "purpose_option_id": position.purpose_option_id,
+                        "risk_level": _option_value(options, position.risk_option_id, "asset_risk"),
+                        "risk_option_id": position.risk_option_id,
                         "is_investable": position.is_investable,
                         "sort_order": position.sort_order,
                     }
@@ -114,6 +140,7 @@ def save_asset_config(session: Session, payload: AssetConfigPayload) -> AssetCon
             select(AssetPosition).where(AssetPosition.user_id == SINGLE_USER_ID)
         )
     }
+    options = _asset_options(session)
     retained_account_ids: set[int] = set()
     retained_position_ids: set[int] = set()
     for account_index, account_value in enumerate(payload.accounts):
@@ -124,7 +151,8 @@ def save_asset_config(session: Session, payload: AssetConfigPayload) -> AssetCon
         account.name = account_value.name.strip()
         account.region = account_value.region
         account.currency = account_value.currency.strip()
-        account.asset_category = account_value.asset_category.strip()
+        account.asset_category_option_id = account_value.asset_category_option_id
+        account.asset_category = _option_value(options, account_value.asset_category_option_id, "asset_category")
         account.target_amount = account_value.target_amount
         account.sort_order = account_value.sort_order or account_index
         account.is_active = True
@@ -138,9 +166,12 @@ def save_asset_config(session: Session, payload: AssetConfigPayload) -> AssetCon
                 position = AssetPosition(user_id=SINGLE_USER_ID, asset_account_id=account.id)
                 session.add(position)
             position.name = position_value.name.strip()
-            position.asset_class = position_value.asset_class.strip()
-            position.purpose = position_value.purpose
-            position.risk_level = position_value.risk_level
+            position.asset_class_option_id = position_value.asset_class_option_id
+            position.asset_class = _option_value(options, position_value.asset_class_option_id, "asset_class")
+            position.purpose_option_id = position_value.purpose_option_id
+            position.purpose = _option_value(options, position_value.purpose_option_id, "asset_purpose")
+            position.risk_option_id = position_value.risk_option_id
+            position.risk_level = _option_value(options, position_value.risk_option_id, "asset_risk")
             position.is_investable = position_value.is_investable
             position.sort_order = position_value.sort_order or position_index
             position.is_active = True
@@ -244,6 +275,7 @@ def _snapshot_totals(
 
 def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> AssetDashboard:
     accounts, active_positions = _accounts_and_positions(session)
+    options = _asset_options(session)
     all_positions = {
         item.id: item for item in session.scalars(
             select(AssetPosition).where(AssetPosition.user_id == SINGLE_USER_ID)
@@ -328,7 +360,7 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
             )
         )
     history = []
-    for snapshot in reversed(snapshots[:6]):
+    for snapshot in reversed(snapshots):
         items = list(
             session.scalars(
                 select(AssetSnapshotItem).where(AssetSnapshotItem.asset_snapshot_id == snapshot.id)
@@ -337,6 +369,7 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
         history_net, history_investable = _snapshot_totals(items, all_positions)
         history.append(
             AssetHistoryPoint(
+                snapshot_id=snapshot.id,
                 snapshot_date=snapshot.snapshot_date,
                 net_assets=round(history_net, 4),
                 investable_assets=round(history_investable, 4),
@@ -354,9 +387,12 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
                 AssetDashboardPosition(
                     id=position.id,
                     name=position.name,
-                    asset_class=position.asset_class,
-                    purpose=position.purpose,
-                    risk_level=position.risk_level,
+                    asset_class=_option_value(options, position.asset_class_option_id, "asset_class"),
+                    asset_class_option_id=position.asset_class_option_id,
+                    purpose=_option_value(options, position.purpose_option_id, "asset_purpose"),
+                    purpose_option_id=position.purpose_option_id,
+                    risk_level=_option_value(options, position.risk_option_id, "asset_risk"),
+                    risk_option_id=position.risk_option_id,
                     is_investable=position.is_investable,
                     sort_order=position.sort_order,
                     amount=float(item.amount) if item else 0,
@@ -374,7 +410,8 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
                 name=account.name,
                 region=account.region,
                 currency=account.currency,
-                asset_category=account.asset_category,
+                asset_category=_option_value(options, account.asset_category_option_id, "asset_category"),
+                asset_category_option_id=account.asset_category_option_id,
                 target_amount=float(account.target_amount) if account.target_amount is not None else None,
                 sort_order=account.sort_order,
                 current_amount=round(sum(item.amount_cny for item in dashboard_positions), 4),

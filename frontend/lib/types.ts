@@ -103,9 +103,15 @@ export type InvestmentNoteCategory = "长期" | "实时";
 export type InvestmentNoteAction = "加仓" | "减仓" | "清仓" | "持有" | "观察";
 export type ContentOptionType = "investment_note_source" | "knowledge_category" | "asset_purpose" | "asset_risk" | "asset_region" | "asset_class" | "asset_category";
 
+export interface ContentOptionItem {
+  id: number | null;
+  value: string;
+}
+
 export interface ContentOptionResponse {
   optionType: ContentOptionType;
   values: string[];
+  items: ContentOptionItem[];
 }
 
 export interface InvestmentNotePayload {
@@ -114,6 +120,7 @@ export interface InvestmentNotePayload {
   category: InvestmentNoteCategory;
   action: InvestmentNoteAction | null;
   sourceName: string | null;
+  sourceOptionId: number | null;
   sourceUrl: string | null;
   sourceExcerpt: string | null;
   ownSummary: string | null;
@@ -137,6 +144,7 @@ export interface KnowledgeSource {
 export interface KnowledgeArticlePayload {
   title: string;
   category: string;
+  categoryOptionId: number | null;
   contentMarkdown: string;
   tags: string[];
   sources: KnowledgeSource[];
@@ -152,6 +160,7 @@ export interface KnowledgeArticle extends KnowledgeArticlePayload {
 
 export interface KnowledgeCategoryOrder {
   category: string;
+  categoryOptionId: number | null;
   articleIds: number[];
 }
 
@@ -163,8 +172,11 @@ export interface AssetPositionConfig {
   id: number | null;
   name: string;
   assetClass: string;
+  assetClassOptionId: number;
   purpose: AssetPurpose;
+  purposeOptionId: number;
   riskLevel: AssetRiskLevel;
+  riskOptionId: number;
   isInvestable: boolean;
   sortOrder: number;
 }
@@ -175,6 +187,7 @@ export interface AssetAccountConfig {
   region: AssetRegion;
   currency: string;
   assetCategory: string;
+  assetCategoryOptionId: number;
   targetAmount: number | null;
   sortOrder: number;
   positions: AssetPositionConfig[];
@@ -221,6 +234,7 @@ export interface AssetAllocation {
 }
 
 export interface AssetHistoryPoint {
+  snapshotId: number;
   snapshotDate: string;
   netAssets: number;
   investableAssets: number;

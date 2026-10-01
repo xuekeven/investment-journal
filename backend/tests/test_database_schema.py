@@ -107,6 +107,10 @@ def test_investment_notes_are_single_user_and_structured() -> None:
     assert "加仓" in str(action_constraint.sqltext)
     assert "index_ids" in note_table.columns
     assert "fund_codes" in note_table.columns
+    assert "source_option_id" in note_table.columns
+    assert "content_option.id" in {
+        key.target_fullname for key in note_table.foreign_keys
+    }
 
 
 def test_content_options_are_scoped_and_ordered() -> None:
@@ -135,6 +139,10 @@ def test_knowledge_articles_store_stable_reference_fields() -> None:
     assert "status" not in article_table.columns
     assert "category_order" in article_table.columns
     assert "article_order" in article_table.columns
+    assert "category_option_id" in article_table.columns
+    assert "content_option.id" in {
+        key.target_fullname for key in article_table.foreign_keys
+    }
     assert "ix_knowledge_article_user_order" in {index.name for index in article_table.indexes}
 
 
@@ -145,10 +153,19 @@ def test_asset_management_uses_structured_snapshots() -> None:
 
     assert "target_amount" in account_table.columns
     assert "asset_category" in account_table.columns
+    assert "asset_category_option_id" in account_table.columns
     assert "purpose" in position_table.columns
+    assert "asset_class_option_id" in position_table.columns
+    assert "purpose_option_id" in position_table.columns
+    assert "risk_option_id" in position_table.columns
     assert "risk_level" in position_table.columns
     assert "is_investable" in position_table.columns
     assert {key.target_fullname for key in snapshot_item_table.foreign_keys} == {
         "asset_snapshot.id",
         "asset_position.id",
+    }
+    assert "content_option.id" in {key.target_fullname for key in account_table.foreign_keys}
+    assert {key.target_fullname for key in position_table.foreign_keys} >= {
+        "content_option.id",
+        "asset_account.id",
     }

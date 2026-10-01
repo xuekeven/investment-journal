@@ -15,6 +15,7 @@ import type {
   InvestmentNote,
   InvestmentNoteCategory,
   InvestmentNotePayload,
+  ContentOptionItem,
 } from "@/lib/types";
 import { ContentOptionDialog } from "./content-option-dialog";
 import { CloseIcon, SearchIcon, SettingsIcon } from "./icons";
@@ -31,10 +32,11 @@ function today() {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
 }
 
-function emptyDraft(sourceOptions: string[] = DEFAULT_SOURCE_OPTIONS): NoteDraft {
+function emptyDraft(sourceOptions: ContentOptionItem[] = DEFAULT_SOURCE_OPTIONS.map((value) => ({ id: null, value }))): NoteDraft {
+  const source = sourceOptions[0];
   return {
     noteDate: today(), title: "", category: "长期", action: null,
-    sourceName: sourceOptions[0] ?? "", sourceUrl: "", sourceExcerpt: "", ownSummary: "",
+    sourceName: source?.value ?? "", sourceOptionId: source?.id ?? null, sourceUrl: "", sourceExcerpt: "", ownSummary: "",
     contentMarkdown: "", tags: "",
   };
 }
@@ -46,6 +48,7 @@ function noteToDraft(note: InvestmentNote): NoteDraft {
     category: note.category,
     action: note.action,
     sourceName: note.sourceName ?? "",
+    sourceOptionId: note.sourceOptionId,
     sourceUrl: note.sourceUrl ?? "",
     sourceExcerpt: note.sourceExcerpt ?? "",
     ownSummary: note.ownSummary ?? "",
@@ -220,7 +223,7 @@ export function InvestmentNotes() {
   const [draft, setDraft] = useState<NoteDraft>(emptyDraft);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [sourceOptions, setSourceOptions] = useState<string[]>(DEFAULT_SOURCE_OPTIONS);
+  const [sourceOptions, setSourceOptions] = useState<ContentOptionItem[]>(DEFAULT_SOURCE_OPTIONS.map((value) => ({ id: null, value })));
   const [error, setError] = useState<string | null>(null);
   const deleteConfirmRef = useRef<HTMLButtonElement>(null);
   const notePanelRef = useRef<HTMLElement>(null);
@@ -232,7 +235,7 @@ export function InvestmentNotes() {
       getContentOptions("investment_note_source", controller.signal),
     ])
       .then(([items, optionResponse]) => {
-        setSourceOptions(optionResponse.values);
+        setSourceOptions(optionResponse.items);
         setNotes(items);
         setActiveId((current) => current ?? items[0]?.id ?? null);
         setError(null);
@@ -264,11 +267,8 @@ export function InvestmentNotes() {
         setOpenSelect(null);
       }
     };
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     document.addEventListener("keydown", closeOnEscape);
     return () => {
-      document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [editing, saving]);
@@ -278,12 +278,9 @@ export function InvestmentNotes() {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !saving) setDeleteTarget(null);
     };
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     deleteConfirmRef.current?.focus();
     document.addEventListener("keydown", closeOnEscape);
     return () => {
-      document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [deleteTarget, saving]);
@@ -296,15 +293,15 @@ export function InvestmentNotes() {
     const usedSources = new Set(
       notes.map((note) => note.sourceName).filter((value): value is string => Boolean(value)),
     );
-    const configuredSources = sourceOptions.filter((value) => usedSources.has(value));
+    const configuredSources = sourceOptions.map((item) => item.value).filter((value) => usedSources.has(value));
     const historicalSources = Array.from(usedSources)
-      .filter((value) => !sourceOptions.includes(value))
+      .filter((value) => !sourceOptions.some((item) => item.value === value))
       .sort((left, right) => left.localeCompare(right, "zh-CN"));
     return [...configuredSources, ...historicalSources];
   }, [notes, sourceOptions]);
 
   const noteSourceOptions = useMemo(
-    () => Array.from(new Set([...(draft.sourceName ? [draft.sourceName] : []), ...sourceOptions])),
+    () => Array.from(new Set([...(draft.sourceName ? [draft.sourceName] : []), ...sourceOptions.map((item) => item.value)])),
     [draft.sourceName, sourceOptions],
   );
 
@@ -546,7 +543,7 @@ export function InvestmentNotes() {
                   <label><span>标题</span><input required maxLength={200} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
                   <div className="note-form-control"><span>类型</span><NoteSelect id="note-category" value={draft.category} options={CATEGORY_OPTIONS.map((item) => [item, item] as const)} open={openSelect === "category"} onOpenChange={(open) => setOpenSelect(open ? "category" : null)} onChange={(value) => setDraft({ ...draft, category: value as InvestmentNoteCategory })} /></div>
                   <label><span>标签</span><input value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="QDII、风控、估值" /></label>
-                  <div className="note-form-control"><span>来源</span><NoteSelect id="note-source" value={draft.sourceName ?? ""} options={noteSourceOptions.map((item) => [item, item] as const)} open={openSelect === "source"} onOpenChange={(open) => setOpenSelect(open ? "source" : null)} onChange={(value) => setDraft({ ...draft, sourceName: value, ownSummary: value === "自我总结" ? "" : draft.ownSummary })} /></div>
+                  <div className="note-form-control"><span>来源</span><NoteSelect id="note-source" value={draft.sourceName ?? ""} options={noteSourceOptions.map((item) => [item, item] as const)} open={openSelect === "source"} onOpenChange={(open) => setOpenSelect(open ? "source" : null)} onChange={(value) => setDraft({ ...draft, sourceName: value, sourceOptionId: sourceOptions.find((item) => item.value === value)?.id ?? null, ownSummary: value === "自我总结" ? "" : draft.ownSummary })} /></div>
                   <label><span>来源链接</span><input value={draft.sourceUrl ?? ""} onChange={(event) => setDraft({ ...draft, sourceUrl: event.target.value })} placeholder="https://…" /></label>
                 </div>
                 <label className="note-form-field"><span>观点归纳</span><textarea className="note-opinion-input" rows={3} value={draft.sourceExcerpt ?? ""} onChange={(event) => setDraft({ ...draft, sourceExcerpt: event.target.value })} placeholder="每行可用“- ”开头记录一个观点" /></label>
@@ -562,11 +559,13 @@ export function InvestmentNotes() {
         <ContentOptionDialog
           pageTitle="投资笔记"
           itemLabel="来源"
-          values={sourceOptions}
+          items={sourceOptions}
           onClose={() => setManagingSources(false)}
-          onSave={async (values) => {
-            const response = await updateContentOptions("investment_note_source", values);
-            setSourceOptions(response.values);
+          onSave={async (items) => {
+            const response = await updateContentOptions("investment_note_source", items);
+            setSourceOptions(response.items);
+            const labels = new Map(response.items.map((item) => [item.id, item.value]));
+            setNotes((current) => current.map((note) => ({ ...note, sourceName: labels.get(note.sourceOptionId) ?? note.sourceName })));
           }}
         />
       )}

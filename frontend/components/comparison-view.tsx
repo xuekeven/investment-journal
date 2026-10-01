@@ -55,8 +55,6 @@ export function ComparisonView({
     const previousFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -88,7 +86,6 @@ export function ComparisonView({
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousOverflow;
       previousFocus?.focus();
     };
   }, [onClose]);

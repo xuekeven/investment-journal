@@ -238,6 +238,9 @@ class InvestmentNote(Base, TimestampMixin):
     category: Mapped[str] = mapped_column(String(24), nullable=False)
     action: Mapped[str | None] = mapped_column(String(24))
     source_name: Mapped[str | None] = mapped_column(String(200))
+    source_option_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT")
+    )
     source_url: Mapped[str | None] = mapped_column(Text)
     source_excerpt: Mapped[str | None] = mapped_column(Text)
     own_summary: Mapped[str | None] = mapped_column(Text)
@@ -274,6 +277,9 @@ class KnowledgeArticle(Base, TimestampMixin):
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(80), nullable=False)
+    category_option_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=False
+    )
     category_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     article_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     content_markdown: Mapped[str] = mapped_column(
@@ -332,6 +338,9 @@ class AssetAccount(Base, TimestampMixin):
     region: Mapped[str] = mapped_column(String(16), nullable=False)
     currency: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'人民币'"))
     asset_category: Mapped[str] = mapped_column(String(64), nullable=False, server_default=text("'基金'"))
+    asset_category_option_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=False
+    )
     target_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
@@ -352,8 +361,17 @@ class AssetPosition(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     asset_class: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_class_option_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=False
+    )
     purpose: Mapped[str] = mapped_column(String(24), nullable=False)
+    purpose_option_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=False
+    )
     risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    risk_option_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=False
+    )
     is_investable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))

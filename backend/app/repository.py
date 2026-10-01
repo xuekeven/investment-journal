@@ -3,13 +3,15 @@ from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import Select, String, and_, case, cast, delete, func, literal, or_, select, union_all
+from sqlalchemy import Select, String, and_, case, cast, delete, func, literal, or_, select, union_all, update
 from sqlalchemy.orm import Session, aliased
 
 from app.config import get_settings
 from app.data.sample import FUND_ROWS, INDEX_ROWS
 from app.database import get_session_factory
 from app.database_models import (
+    AssetAccount,
+    AssetPosition,
     CalculatedMetric,
     ContentOption,
     FeeHistory,
@@ -28,6 +30,7 @@ from app.database_models import (
     UserFundTag,
 )
 from app.models import (
+    ContentOptionItem,
     ContentOptionType,
     DataStatus,
     DataFreshness,
@@ -96,6 +99,28 @@ def _normalize_content_options(values: list[str]) -> list[str]:
     return normalized
 
 
+def _content_option(
+    session: Session,
+    option_type: ContentOptionType,
+    option_id: int | None,
+    value: str | None,
+) -> ContentOption | None:
+    statement = select(ContentOption).where(
+        ContentOption.user_id == SINGLE_USER_ID,
+        ContentOption.option_type == option_type.value,
+    )
+    if option_id is not None:
+        statement = statement.where(ContentOption.id == option_id)
+    elif value and value.strip():
+        statement = statement.where(ContentOption.value == value.strip())
+    else:
+        return None
+    row = session.scalar(statement)
+    if row is None:
+        raise ValueError("选项不存在或不属于当前类型")
+    return row
+
+
 def _normalized_note_values(
     payload: InvestmentNoteCreate | InvestmentNoteUpdate,
 ) -> dict[str, Any]:
@@ -127,6 +152,7 @@ def _note_item(note: InvestmentNote) -> InvestmentNoteItem:
         category=note.category,
         action=note.action,
         source_name=note.source_name,
+        source_option_id=note.source_option_id,
         source_url=note.source_url,
         source_excerpt=note.source_excerpt,
         own_summary=note.own_summary,
@@ -180,6 +206,7 @@ def _knowledge_item(article: KnowledgeArticle) -> KnowledgeArticleItem:
         id=article.id,
         title=article.title,
         category=article.category,
+        category_option_id=article.category_option_id,
         content_markdown=article.content_markdown,
         tags=list(article.tags or []),
         sources=list(article.sources or []),
@@ -211,9 +238,12 @@ def calculate_estimated_deviation(
     *,
     allow_lagged_nav: bool = False,
 ) -> float | None:
-    next_weekday = nav_date + timedelta(days=1) if nav_date is not None else None
-    while next_weekday is not None and next_weekday.weekday() >= 5:
-        next_weekday += timedelta(days=1)
+    lag_days = (close_date - nav_date).days if close_date is not None and nav_date is not None else None
+    lagged_nav_is_usable = (
+        allow_lagged_nav
+        and lag_days is not None
+        and 0 <= lag_days <= 7
+    )
     if (
         close_price is None
         or nav in (None, 0)
@@ -221,7 +251,7 @@ def calculate_estimated_deviation(
         or nav_date is None
         or (
             close_date != nav_date
-            and not (allow_lagged_nav and close_date == next_weekday)
+            and not lagged_nav_is_usable
         )
     ):
         return None
@@ -273,9 +303,17 @@ class FundRepository(ABC):
     def list_content_options(self, option_type: ContentOptionType) -> list[str]: ...
 
     @abstractmethod
+    def list_content_option_items(self, option_type: ContentOptionType) -> list[ContentOptionItem]: ...
+
+    @abstractmethod
     def set_content_options(
         self, option_type: ContentOptionType, values: list[str]
     ) -> list[str]: ...
+
+    @abstractmethod
+    def set_content_option_items(
+        self, option_type: ContentOptionType, items: list[ContentOptionItem]
+    ) -> list[ContentOptionItem]: ...
 
     @abstractmethod
     def list_notes(
@@ -373,6 +411,11 @@ class SampleFundRepository(FundRepository):
             option_type: list(values)
             for option_type, values in DEFAULT_CONTENT_OPTIONS.items()
         }
+        self._content_option_ids = {
+            option_type: list(range(index * 1000 + 1, index * 1000 + len(values) + 1))
+            for index, (option_type, values) in enumerate(DEFAULT_CONTENT_OPTIONS.items())
+        }
+        self._next_content_option_id = 100_000
 
     def list_indices(self) -> list[IndexSummary]:
         return self._indices
@@ -435,12 +478,74 @@ class SampleFundRepository(FundRepository):
     def list_content_options(self, option_type: ContentOptionType) -> list[str]:
         return list(self._content_options[option_type])
 
+    def list_content_option_items(self, option_type: ContentOptionType) -> list[ContentOptionItem]:
+        return [
+            ContentOptionItem(id=option_id, value=value)
+            for option_id, value in zip(
+                self._content_option_ids[option_type], self._content_options[option_type]
+            )
+        ]
+
     def set_content_options(
         self, option_type: ContentOptionType, values: list[str]
     ) -> list[str]:
         normalized = _normalize_content_options(values)
+        existing_by_value = {
+            value: option_id
+            for option_id, value in zip(
+                self._content_option_ids[option_type], self._content_options[option_type]
+            )
+        }
+        saved = self.set_content_option_items(
+            option_type,
+            [
+                ContentOptionItem(id=existing_by_value.get(value), value=value)
+                for value in normalized
+            ],
+        )
+        return [item.value for item in saved]
+
+    def set_content_option_items(
+        self, option_type: ContentOptionType, items: list[ContentOptionItem]
+    ) -> list[ContentOptionItem]:
+        normalized = _normalize_content_options([item.value for item in items])
+        if len(normalized) != len(items):
+            raise ValueError("选项不能为空或重复")
+        old_pairs = dict(
+            zip(self._content_option_ids[option_type], self._content_options[option_type])
+        )
+        existing_ids = set(self._content_option_ids[option_type])
+        ids: list[int] = []
+        for item in items:
+            if item.value.strip() not in normalized:
+                continue
+            if item.id is not None and item.id in existing_ids:
+                ids.append(item.id)
+            else:
+                ids.append(self._next_content_option_id)
+                self._next_content_option_id += 1
+        renamed = {
+            option_id: value
+            for option_id, value in zip(ids, normalized)
+            if old_pairs.get(option_id) not in (None, value)
+        }
+        if option_type == ContentOptionType.INVESTMENT_NOTE_SOURCE and renamed:
+            self._notes = [
+                note.model_copy(update={"source_name": renamed[note.source_option_id]})
+                if note.source_option_id in renamed
+                else note
+                for note in self._notes
+            ]
+        elif option_type == ContentOptionType.KNOWLEDGE_CATEGORY and renamed:
+            self._knowledge_articles = [
+                article.model_copy(update={"category": renamed[article.category_option_id]})
+                if article.category_option_id in renamed
+                else article
+                for article in self._knowledge_articles
+            ]
         self._content_options[option_type] = normalized
-        return list(normalized)
+        self._content_option_ids[option_type] = ids
+        return self.list_content_option_items(option_type)
 
     def list_notes(
         self,
@@ -476,9 +581,16 @@ class SampleFundRepository(FundRepository):
 
     def create_note(self, payload: InvestmentNoteCreate) -> InvestmentNoteItem:
         now = datetime.now(UTC)
+        values = _normalized_note_values(payload)
+        if payload.source_option_id is not None:
+            try:
+                source_index = self._content_option_ids[ContentOptionType.INVESTMENT_NOTE_SOURCE].index(payload.source_option_id)
+            except ValueError as exc:
+                raise ValueError("选项不存在或不属于当前类型") from exc
+            values["source_name"] = self._content_options[ContentOptionType.INVESTMENT_NOTE_SOURCE][source_index]
         note = InvestmentNoteItem(
             id=self._next_note_id,
-            **_normalized_note_values(payload),
+            **values,
             created_at=now,
             updated_at=now,
         )
@@ -549,6 +661,12 @@ class SampleFundRepository(FundRepository):
         self, payload: KnowledgeArticleCreate
     ) -> KnowledgeArticleItem:
         category = payload.category.strip()
+        if payload.category_option_id is not None:
+            try:
+                category_index = self._content_option_ids[ContentOptionType.KNOWLEDGE_CATEGORY].index(payload.category_option_id)
+            except ValueError as exc:
+                raise ValueError("选项不存在或不属于当前类型") from exc
+            category = self._content_options[ContentOptionType.KNOWLEDGE_CATEGORY][category_index]
         category_orders = [
             article.category_order
             for article in self._knowledge_articles
@@ -570,9 +688,11 @@ class SampleFundRepository(FundRepository):
             default=-1,
         ) + 1
         now = datetime.now(UTC)
+        values = _normalized_knowledge_values(payload)
+        values["category"] = category
         article = KnowledgeArticleItem(
             id=self._next_knowledge_article_id,
-            **_normalized_knowledge_values(payload),
+            **values,
             category_order=category_order,
             article_order=article_order,
             created_at=now,
@@ -977,28 +1097,96 @@ class PostgresFundRepository(FundRepository):
             ).all()
             return list(values) if values else list(DEFAULT_CONTENT_OPTIONS[option_type])
 
+    def list_content_option_items(self, option_type: ContentOptionType) -> list[ContentOptionItem]:
+        with self._session_factory() as session:
+            rows = list(session.scalars(
+                select(ContentOption)
+                .where(
+                    ContentOption.user_id == SINGLE_USER_ID,
+                    ContentOption.option_type == option_type.value,
+                )
+                .order_by(ContentOption.sort_order.asc(), ContentOption.id.asc())
+            ))
+            return [ContentOptionItem(id=row.id, value=row.value) for row in rows]
+
     def set_content_options(
         self, option_type: ContentOptionType, values: list[str]
     ) -> list[str]:
         normalized = _normalize_content_options(values)
+        existing_by_value = {
+            item.value: item.id for item in self.list_content_option_items(option_type)
+        }
+        saved = self.set_content_option_items(
+            option_type,
+            [
+                ContentOptionItem(id=existing_by_value.get(value), value=value)
+                for value in normalized
+            ],
+        )
+        return [item.value for item in saved]
+
+    def set_content_option_items(
+        self, option_type: ContentOptionType, items: list[ContentOptionItem]
+    ) -> list[ContentOptionItem]:
+        normalized = _normalize_content_options([item.value for item in items])
+        if len(normalized) != len(items):
+            raise ValueError("选项不能为空或重复")
         with self._session_factory() as session:
-            session.execute(
-                delete(ContentOption).where(
-                    ContentOption.user_id == SINGLE_USER_ID,
-                    ContentOption.option_type == option_type.value,
+            existing = {
+                row.id: row for row in session.scalars(
+                    select(ContentOption).where(
+                        ContentOption.user_id == SINGLE_USER_ID,
+                        ContentOption.option_type == option_type.value,
+                    )
                 )
-            )
-            session.add_all(
-                ContentOption(
-                    user_id=SINGLE_USER_ID,
-                    option_type=option_type.value,
-                    value=value,
-                    sort_order=sort_order,
-                )
-                for sort_order, value in enumerate(normalized)
-            )
+            }
+            old_values = {row_id: row.value for row_id, row in existing.items()}
+            retained_ids: set[int] = set()
+            rows: list[ContentOption] = []
+            for index, item in enumerate(items):
+                row = existing.get(item.id) if item.id is not None else None
+                if item.id is not None and row is None:
+                    raise ValueError("选项不存在或不属于当前类型")
+                if row is None:
+                    row = ContentOption(
+                        user_id=SINGLE_USER_ID,
+                        option_type=option_type.value,
+                        value=f"__new_option_{index}__",
+                    )
+                    session.add(row)
+                else:
+                    row.value = f"__renaming_option_{row.id}__"
+                row.sort_order = index
+                rows.append(row)
+            session.flush()
+            for row, item in zip(rows, items):
+                old_value = old_values.get(row.id)
+                row.value = item.value.strip()
+                session.flush()
+                retained_ids.add(row.id)
+                if old_value is not None and old_value != row.value:
+                    if option_type == ContentOptionType.INVESTMENT_NOTE_SOURCE:
+                        session.execute(update(InvestmentNote).where(InvestmentNote.source_option_id == row.id).values(source_name=row.value))
+                    elif option_type == ContentOptionType.KNOWLEDGE_CATEGORY:
+                        session.execute(update(KnowledgeArticle).where(KnowledgeArticle.category_option_id == row.id).values(category=row.value))
+                    elif option_type == ContentOptionType.ASSET_CATEGORY:
+                        session.execute(update(AssetAccount).where(AssetAccount.asset_category_option_id == row.id).values(asset_category=row.value))
+                    elif option_type == ContentOptionType.ASSET_CLASS:
+                        session.execute(update(AssetPosition).where(AssetPosition.asset_class_option_id == row.id).values(asset_class=row.value))
+                    elif option_type == ContentOptionType.ASSET_PURPOSE:
+                        session.execute(update(AssetPosition).where(AssetPosition.purpose_option_id == row.id).values(purpose=row.value))
+                    elif option_type == ContentOptionType.ASSET_RISK:
+                        session.execute(update(AssetPosition).where(AssetPosition.risk_option_id == row.id).values(risk_level=row.value))
+            removed = set(existing) - retained_ids
+            if removed:
+                try:
+                    session.execute(delete(ContentOption).where(ContentOption.id.in_(removed)))
+                    session.flush()
+                except Exception as exc:
+                    session.rollback()
+                    raise ValueError("仍被账户或持仓使用的选项不能删除") from exc
             session.commit()
-        return normalized
+            return [ContentOptionItem(id=row.id, value=row.value) for row in rows]
 
     def list_notes(
         self,
@@ -1036,9 +1224,18 @@ class PostgresFundRepository(FundRepository):
 
     def create_note(self, payload: InvestmentNoteCreate) -> InvestmentNoteItem:
         with self._session_factory() as session:
+            values = _normalized_note_values(payload)
+            source = _content_option(
+                session,
+                ContentOptionType.INVESTMENT_NOTE_SOURCE,
+                payload.source_option_id,
+                payload.source_name,
+            )
+            values["source_option_id"] = source.id if source else None
+            values["source_name"] = source.value if source else None
             note = InvestmentNote(
                 user_id=SINGLE_USER_ID,
-                **_normalized_note_values(payload),
+                **values,
             )
             session.add(note)
             session.commit()
@@ -1057,7 +1254,16 @@ class PostgresFundRepository(FundRepository):
             )
             if note is None:
                 return None
-            for field, value in _normalized_note_values(payload).items():
+            values = _normalized_note_values(payload)
+            source = _content_option(
+                session,
+                ContentOptionType.INVESTMENT_NOTE_SOURCE,
+                payload.source_option_id,
+                payload.source_name,
+            )
+            values["source_option_id"] = source.id if source else None
+            values["source_name"] = source.value if source else None
+            for field, value in values.items():
                 setattr(note, field, value)
             note.updated_at = datetime.now(UTC)
             session.commit()
@@ -1113,7 +1319,14 @@ class PostgresFundRepository(FundRepository):
         self, payload: KnowledgeArticleCreate
     ) -> KnowledgeArticleItem:
         with self._session_factory() as session:
-            category = payload.category.strip()
+            option = _content_option(
+                session,
+                ContentOptionType.KNOWLEDGE_CATEGORY,
+                payload.category_option_id,
+                payload.category,
+            )
+            assert option is not None
+            category = option.value
             category_order = session.scalar(
                 select(func.min(KnowledgeArticle.category_order)).where(
                     KnowledgeArticle.user_id == SINGLE_USER_ID,
@@ -1133,11 +1346,14 @@ class PostgresFundRepository(FundRepository):
                     KnowledgeArticle.category == category,
                 )
             )
+            values = _normalized_knowledge_values(payload)
+            values["category"] = option.value
+            values["category_option_id"] = option.id
             article = KnowledgeArticle(
                 user_id=SINGLE_USER_ID,
                 category_order=category_order,
                 article_order=(maximum_article_order if maximum_article_order is not None else -1) + 1,
-                **_normalized_knowledge_values(payload),
+                **values,
             )
             session.add(article)
             session.commit()
@@ -1156,8 +1372,17 @@ class PostgresFundRepository(FundRepository):
             )
             if article is None:
                 return None
+            option = _content_option(
+                session,
+                ContentOptionType.KNOWLEDGE_CATEGORY,
+                payload.category_option_id,
+                payload.category,
+            )
+            assert option is not None
             values = _normalized_knowledge_values(payload)
-            if values["category"] != article.category:
+            values["category"] = option.value
+            values["category_option_id"] = option.id
+            if option.id != article.category_option_id:
                 category_order = session.scalar(
                     select(func.min(KnowledgeArticle.category_order)).where(
                         KnowledgeArticle.user_id == SINGLE_USER_ID,
@@ -1219,7 +1444,15 @@ class PostgresFundRepository(FundRepository):
             now = datetime.now(UTC)
             for article in articles:
                 category, category_order, article_order = values[article.id]
+                option = _content_option(
+                    session,
+                    ContentOptionType.KNOWLEDGE_CATEGORY,
+                    next((group.category_option_id for group in payload.categories if group.category == category), None),
+                    category,
+                )
+                assert option is not None
                 article.category = category
+                article.category_option_id = option.id
                 article.category_order = category_order
                 article.article_order = article_order
                 article.updated_at = now

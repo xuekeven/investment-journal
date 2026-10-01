@@ -2,25 +2,26 @@
 
 import { useEffect, useState } from "react";
 import type { DragEvent, FormEvent } from "react";
+import type { ContentOptionItem } from "@/lib/types";
 
 import { CloseIcon, TrashIcon } from "./icons";
 
 type ContentOptionDialogProps = {
   pageTitle: string;
   itemLabel: string;
-  values: string[];
+  items: ContentOptionItem[];
   onClose: () => void;
-  onSave: (values: string[]) => Promise<void>;
+  onSave: (items: ContentOptionItem[]) => Promise<void>;
 };
 
 export function ContentOptionDialog({
   pageTitle,
   itemLabel,
-  values,
+  items,
   onClose,
   onSave,
 }: ContentOptionDialogProps) {
-  const [draft, setDraft] = useState(values.length > 0 ? values : [""]);
+  const [draft, setDraft] = useState<ContentOptionItem[]>(items.length > 0 ? items : [{ id: null, value: "" }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -36,7 +37,7 @@ export function ContentOptionDialog({
 
   function update(index: number, value: string) {
     setDraft((current) => current.map((item, itemIndex) => (
-      itemIndex === index ? value : item
+      itemIndex === index ? { ...item, value } : item
     )));
   }
 
@@ -64,12 +65,12 @@ export function ContentOptionDialog({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalized = Array.from(new Set(draft.map((value) => value.trim()).filter(Boolean)));
+    const normalized = draft.map((item) => ({ ...item, value: item.value.trim() })).filter((item) => item.value);
     if (normalized.length === 0) {
       setError(`至少保留一个${itemLabel}。`);
       return;
     }
-    if (normalized.length !== draft.filter((value) => value.trim()).length) {
+    if (new Set(normalized.map((item) => item.value)).size !== normalized.length) {
       setError(`${itemLabel}不能重复。`);
       return;
     }
@@ -113,31 +114,29 @@ export function ContentOptionDialog({
           <section className="content-option-section">
             <header className="content-option-section-head">
               <h3>{itemLabel}选项</h3>
-              <p>用于新建和编辑{pageTitle}时的“{itemLabel}”字段。</p>
             </header>
             <div className="content-option-list">
-            {draft.map((value, index) => (
+            {draft.map((item, index) => (
               <div
                 className={`content-option-row${draggedIndex === index ? " dragging" : ""}${dragOverIndex === index ? " drag-over" : ""}`}
-                key={String(index)}
+                key={item.id ?? `new-${index}`}
                 onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverIndex(index); }}
                 onDrop={(event) => dropAt(event, index)}
               >
-                <button className="drag-handle" type="button" draggable={!saving} disabled={saving} aria-label={`拖动调整${value || itemLabel}顺序`} title="拖动调整顺序" onDragStart={(event) => beginDrag(event, index)} onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}><span aria-hidden="true">⠿</span></button>
+                <button className="drag-handle" type="button" draggable={!saving} disabled={saving} aria-label={`拖动调整${item.value || itemLabel}顺序`} title="拖动调整顺序" onDragStart={(event) => beginDrag(event, index)} onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}><span aria-hidden="true">⠿</span></button>
                 <input
                   autoFocus={index === 0}
                   maxLength={200}
-                  value={value}
+                  value={item.value}
                   onChange={(event) => update(index, event.target.value)}
                   aria-label={`${itemLabel} ${index + 1}`}
                   placeholder={`请输入${itemLabel}`}
                 />
-                <button className="danger" type="button" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={draft.length === 1 || saving} aria-label={`删除${value || itemLabel}`} title="删除"><TrashIcon /></button>
+                <button className="danger" type="button" onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={draft.length === 1 || saving} aria-label={`删除${item.value || itemLabel}`} title="删除"><TrashIcon /></button>
               </div>
             ))}
             </div>
-            <button className="content-option-add" type="button" disabled={saving} onClick={() => setDraft((current) => [...current, ""])}>＋ 添加{itemLabel}</button>
-            <p className="content-option-history">修改配置只影响后续选择，历史内容中的旧值不会被修改。</p>
+            <button className="content-option-add" type="button" disabled={saving} onClick={() => setDraft((current) => [...current, { id: null, value: "" }])}>＋ 添加{itemLabel}</button>
           </section>
           {error && <p className="content-option-error" role="alert">{error}</p>}
           <footer className="content-option-actions">

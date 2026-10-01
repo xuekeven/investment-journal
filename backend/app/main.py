@@ -216,9 +216,11 @@ def list_content_options(
     option_type: ContentOptionType,
     repository: RepositoryDep,
 ) -> ContentOptionList:
+    items = repository.list_content_option_items(option_type)
     return ContentOptionList(
         option_type=option_type,
         values=repository.list_content_options(option_type),
+        items=items,
     )
 
 
@@ -232,10 +234,15 @@ def update_content_options(
     repository: RepositoryDep,
 ) -> ContentOptionList:
     try:
-        values = repository.set_content_options(option_type, payload.values)
+        if payload.items is not None:
+            items = repository.set_content_option_items(option_type, payload.items)
+            values = [item.value for item in items]
+        else:
+            values = repository.set_content_options(option_type, payload.values or [])
+            items = repository.list_content_option_items(option_type)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return ContentOptionList(option_type=option_type, values=values)
+    return ContentOptionList(option_type=option_type, values=values, items=items)
 
 
 @app.get(
@@ -420,7 +427,10 @@ def frontend(requested_path: str) -> FileResponse:
 
     index_file = dist_dir / "index.html"
     if index_file.is_file():
-        return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
+        return FileResponse(
+            index_file,
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
 
     raise HTTPException(
         status_code=503,

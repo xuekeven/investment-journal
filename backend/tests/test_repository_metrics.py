@@ -60,10 +60,20 @@ def test_qdii_deviation_rejects_close_older_than_nav() -> None:
     ) is None
 
 
-def test_qdii_deviation_rejects_stale_nav() -> None:
+def test_qdii_deviation_allows_normal_disclosure_lag() -> None:
     assert calculate_estimated_deviation(
         2.089,
         date(2026, 8, 28),
+        1.9318,
+        date(2026, 8, 26),
+        allow_lagged_nav=True,
+    ) == 8.1375
+
+
+def test_qdii_deviation_rejects_nav_older_than_one_week() -> None:
+    assert calculate_estimated_deviation(
+        2.089,
+        date(2026, 9, 4),
         1.9318,
         date(2026, 8, 26),
         allow_lagged_nav=True,

@@ -17,6 +17,7 @@ import type {
   KnowledgeArticlePayload,
   KnowledgeCategoryOrder,
   KnowledgeSource,
+  ContentOptionItem,
 } from "@/lib/types";
 import { ContentOptionDialog } from "./content-option-dialog";
 import { ArrowUpIcon, CloseIcon, SearchIcon, SettingsIcon, TrashIcon } from "./icons";
@@ -48,10 +49,12 @@ type DropTarget =
   | null;
 type ArticleDraft = KnowledgeArticlePayload;
 
-function emptyDraft(categoryOptions: string[] = DEFAULT_CATEGORIES): ArticleDraft {
+function emptyDraft(categoryOptions: ContentOptionItem[] = DEFAULT_CATEGORIES.map((value) => ({ id: null, value }))): ArticleDraft {
+  const category = categoryOptions[0];
   return {
     title: "",
-    category: categoryOptions[0] ?? "",
+    category: category?.value ?? "",
+    categoryOptionId: category?.id ?? null,
     contentMarkdown: "",
     tags: [],
     sources: [{ name: "", url: null }],
@@ -62,6 +65,7 @@ function toDraft(article: KnowledgeArticle): ArticleDraft {
   return {
     title: article.title,
     category: article.category,
+    categoryOptionId: article.categoryOptionId,
     contentMarkdown: article.contentMarkdown,
     tags: article.tags,
     sources: article.sources.length > 0
@@ -88,7 +92,7 @@ function orderGroups(items: KnowledgeArticle[]): KnowledgeCategoryOrder[] {
     ids.push(article.id);
     groups.set(article.category, ids);
   });
-  return Array.from(groups, ([category, articleIds]) => ({ category, articleIds }));
+  return Array.from(groups, ([category, articleIds]) => ({ category, categoryOptionId: items.find((item) => item.category === category)?.categoryOptionId ?? null, articleIds }));
 }
 
 export function KnowledgeBase() {
@@ -107,7 +111,7 @@ export function KnowledgeBase() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const [categoryOptions, setCategoryOptions] = useState<string[]>(DEFAULT_CATEGORIES);
+  const [categoryOptions, setCategoryOptions] = useState<ContentOptionItem[]>(DEFAULT_CATEGORIES.map((value) => ({ id: null, value })));
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [reordering, setReordering] = useState(false);
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
@@ -131,7 +135,7 @@ export function KnowledgeBase() {
         const initialArticle = items.find((article) => article.id === requestedArticleId)
           ?? items[0]
           ?? null;
-        setCategoryOptions(optionResponse.values);
+        setCategoryOptions(optionResponse.items);
         setArticles(items);
         setActiveId(initialArticle?.id ?? null);
         setExpandedCategories(new Set(initialArticle ? [initialArticle.category] : []));
@@ -169,25 +173,13 @@ export function KnowledgeBase() {
   }, [articles]);
 
   useEffect(() => {
-    if (editing === null) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [editing]);
-
-  useEffect(() => {
     if (deleteTarget === null) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !saving) setDeleteTarget(null);
     };
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     deleteConfirmRef.current?.focus();
     document.addEventListener("keydown", closeOnEscape);
     return () => {
-      document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [deleteTarget, saving]);
@@ -220,7 +212,7 @@ export function KnowledgeBase() {
     [articles],
   );
   const categories = useMemo(
-    () => Array.from(new Set([...(draft.category ? [draft.category] : []), ...categoryOptions])),
+    () => Array.from(new Set([...(draft.category ? [draft.category] : []), ...categoryOptions.map((item) => item.value)])),
     [categoryOptions, draft.category],
   );
   const filteredArticles = useMemo(() => {
@@ -402,6 +394,7 @@ export function KnowledgeBase() {
       const saved = await updateKnowledgeArticle(article.id, {
         title: article.title,
         category: article.category,
+        categoryOptionId: article.categoryOptionId,
         contentMarkdown: inlineBodyDraft.content.trim(),
         tags: article.tags,
         sources: article.sources,
@@ -500,7 +493,11 @@ export function KnowledgeBase() {
 
     let targetGroup = groups.find((group) => group.category === targetCategory);
     if (!targetGroup) {
-      targetGroup = { category: targetCategory, articleIds: [] };
+      targetGroup = {
+        category: targetCategory,
+        categoryOptionId: categoryOptions.find((item) => item.value === targetCategory)?.id ?? null,
+        articleIds: [],
+      };
       groups.push(targetGroup);
     }
     if (targetArticleId === null) {
@@ -894,7 +891,7 @@ export function KnowledgeBase() {
                     options={categories.map((item) => [item, item] as const)}
                     open={openSelect === "category"}
                     onOpenChange={(open) => setOpenSelect(open ? "category" : null)}
-                    onChange={(value) => setDraft({ ...draft, category: value })}
+                    onChange={(value) => setDraft({ ...draft, category: value, categoryOptionId: categoryOptions.find((item) => item.value === value)?.id ?? null })}
                   />
                 </label>
                 <label>
@@ -992,11 +989,13 @@ export function KnowledgeBase() {
         <ContentOptionDialog
           pageTitle="投资手册"
           itemLabel="分类"
-          values={categoryOptions}
+          items={categoryOptions}
           onClose={() => setManagingCategories(false)}
-          onSave={async (values) => {
-            const response = await updateContentOptions("knowledge_category", values);
-            setCategoryOptions(response.values);
+          onSave={async (items) => {
+            const response = await updateContentOptions("knowledge_category", items);
+            setCategoryOptions(response.items);
+            const labels = new Map(response.items.map((item) => [item.id, item.value]));
+            setArticles((current) => current.map((article) => ({ ...article, category: labels.get(article.categoryOptionId) ?? article.category })));
           }}
         />
       )}
