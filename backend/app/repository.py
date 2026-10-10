@@ -152,6 +152,7 @@ def _note_item(note: InvestmentNote) -> InvestmentNoteItem:
         title=note.title,
         category=note.category,
         action=note.action,
+        is_pinned=note.is_pinned,
         source_name=note.source_name,
         source_option_id=note.source_option_id,
         source_url=note.source_url,
@@ -578,7 +579,11 @@ class SampleFundRepository(FundRepository):
                 ).casefold()
             )
         ]
-        return sorted(notes, key=lambda note: (note.note_date, note.id), reverse=True)
+        return sorted(
+            notes,
+            key=lambda note: (note.is_pinned, note.note_date, note.id),
+            reverse=True,
+        )
 
     def create_note(self, payload: InvestmentNoteCreate) -> InvestmentNoteItem:
         now = datetime.now(UTC)
@@ -1311,7 +1316,9 @@ class PostgresFundRepository(FundRepository):
                 )
             notes = session.scalars(
                 statement.order_by(
-                    InvestmentNote.note_date.desc(), InvestmentNote.id.desc()
+                    InvestmentNote.is_pinned.desc(),
+                    InvestmentNote.note_date.desc(),
+                    InvestmentNote.id.desc(),
                 )
             ).all()
             return [_note_item(note) for note in notes]

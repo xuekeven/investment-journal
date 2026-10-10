@@ -237,6 +237,9 @@ class InvestmentNote(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(24), nullable=False)
     action: Mapped[str | None] = mapped_column(String(24))
+    is_pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     source_name: Mapped[str | None] = mapped_column(String(200))
     source_option_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT")

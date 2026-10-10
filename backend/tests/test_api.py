@@ -214,6 +214,7 @@ def test_investment_notes_round_trip() -> None:
         },
     )
     assert created.status_code == 201
+    assert created.json()["isPinned"] is False
     note_id = created.json()["id"]
 
     listed = client.get("/api/v1/notes", params={"q": "风控", "year": 2026})
@@ -224,11 +225,13 @@ def test_investment_notes_round_trip() -> None:
         **created.json(),
         "title": "标普500观察（已复盘）",
         "action": "减仓",
+        "isPinned": True,
     }
     updated = client.put(f"/api/v1/notes/{note_id}", json=updated_payload)
     assert updated.status_code == 200
     assert updated.json()["title"] == "标普500观察（已复盘）"
     assert updated.json()["action"] == "减仓"
+    assert updated.json()["isPinned"] is True
 
     deleted = client.delete(f"/api/v1/notes/{note_id}")
     assert deleted.status_code == 200

@@ -18,7 +18,7 @@ import type {
   ContentOptionItem,
 } from "@/lib/types";
 import { ContentOptionDialog } from "./content-option-dialog";
-import { CloseIcon, SearchIcon, SettingsIcon } from "./icons";
+import { CloseIcon, PinIcon, SearchIcon, SettingsIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 
 const CATEGORY_OPTIONS: InvestmentNoteCategory[] = ["实时", "长期"];
@@ -36,6 +36,7 @@ function emptyDraft(sourceOptions: ContentOptionItem[] = DEFAULT_SOURCE_OPTIONS.
   const source = sourceOptions[0];
   return {
     noteDate: today(), title: "", category: "长期", action: null,
+    isPinned: false,
     sourceName: source?.value ?? "", sourceOptionId: source?.id ?? null, sourceUrl: "", sourceExcerpt: "", ownSummary: "",
     contentMarkdown: "", tags: "",
   };
@@ -47,6 +48,7 @@ function noteToDraft(note: InvestmentNote): NoteDraft {
     title: note.title,
     category: note.category,
     action: note.action,
+    isPinned: note.isPinned,
     sourceName: note.sourceName ?? "",
     sourceOptionId: note.sourceOptionId,
     sourceUrl: note.sourceUrl ?? "",
@@ -82,6 +84,14 @@ function draftToPayload(draft: NoteDraft): InvestmentNotePayload {
 function formatNoteDate(value: string) {
   const [year, month, day] = value.split("-");
   return { year, short: month + "-" + day, full: year + "年" + month + "月" + day + "日" };
+}
+
+function sortNotes(items: InvestmentNote[]) {
+  return [...items].sort((left, right) => (
+    Number(right.isPinned) - Number(left.isPinned)
+    || right.noteDate.localeCompare(left.noteDate)
+    || right.id - left.id
+  ));
 }
 
 type NoteSelectProps = {
@@ -176,9 +186,10 @@ type NoteReaderProps = {
   saving: boolean;
   onEdit: (note: InvestmentNote) => void;
   onDelete: (note: InvestmentNote) => void;
+  onTogglePin: (note: InvestmentNote) => void;
 };
 
-function NoteReader({ note, active, saving, onEdit, onDelete }: NoteReaderProps) {
+function NoteReader({ note, active, saving, onEdit, onDelete, onTogglePin }: NoteReaderProps) {
   return (
     <section id={`note-reader-${note.id}`} className={`note-reader ${active ? "active" : ""}`}>
       <header className="note-reader-head">
@@ -190,6 +201,17 @@ function NoteReader({ note, active, saving, onEdit, onDelete }: NoteReaderProps)
                 {note.sourceUrl ? <a href={note.sourceUrl} target="_blank" rel="noreferrer">{note.sourceName}</a> : <strong>{note.sourceName}</strong>}
               </span>
             )}
+            <button
+              className={`note-pin-button${note.isPinned ? " active" : ""}`}
+              type="button"
+              disabled={saving}
+              aria-label={note.isPinned ? "取消置顶" : "置顶"}
+              title={note.isPinned ? "取消置顶" : "置顶"}
+              aria-pressed={note.isPinned}
+              onClick={() => onTogglePin(note)}
+            >
+              <PinIcon />
+            </button>
           </div>
           <div className="note-title-row">
             <h2><mark>{note.title}</mark></h2>
@@ -322,12 +344,16 @@ export function InvestmentNotes() {
 
   const groupedNotes = useMemo(() => {
     const groups = new Map<string, InvestmentNote[]>();
-    filteredNotes.forEach((note) => {
+    filteredNotes.filter((note) => !note.isPinned).forEach((note) => {
       const noteYear = note.noteDate.slice(0, 4);
       groups.set(noteYear, [...(groups.get(noteYear) ?? []), note]);
     });
     return Array.from(groups.entries());
   }, [filteredNotes]);
+  const pinnedNotes = useMemo(
+    () => filteredNotes.filter((note) => note.isPinned),
+    [filteredNotes],
+  );
 
   const activeNote = filteredNotes.find((note) => note.id === activeId)
     ?? filteredNotes[0] ?? null;
@@ -401,9 +427,9 @@ export function InvestmentNotes() {
       const saved = isNewNote
         ? await createInvestmentNote(payload)
         : await updateInvestmentNote(editing as number, payload);
-      setNotes((current) => [
+      setNotes((current) => sortNotes([
         saved, ...current.filter((note) => note.id !== saved.id),
-      ].sort((left, right) => right.noteDate.localeCompare(left.noteDate) || right.id - left.id));
+      ]));
       setActiveId(saved.id); setEditing(null);
       if (isNewNote) {
         setCategory(saved.category);
@@ -425,6 +451,23 @@ export function InvestmentNotes() {
       setActiveId(null); setEditing(null); setDeleteTarget(null);
     } catch {
       setError("删除失败，请稍后重试。");
+    } finally { setSaving(false); }
+  }
+
+  async function togglePinned(note: InvestmentNote) {
+    setSaving(true); setError(null);
+    try {
+      const saved = await updateInvestmentNote(note.id, {
+        ...draftToPayload(noteToDraft(note)),
+        isPinned: !note.isPinned,
+      });
+      setNotes((current) => sortNotes(
+        current.map((item) => item.id === saved.id ? saved : item),
+      ));
+      setActiveId(saved.id);
+      setPendingScrollId(saved.id);
+    } catch {
+      setError(note.isPinned ? "取消置顶失败，请稍后重试。" : "置顶失败，请稍后重试。");
     } finally { setSaving(false); }
   }
 
@@ -478,6 +521,18 @@ export function InvestmentNotes() {
           <aside className="notes-sidebar" aria-label="笔记目录">
             <div className="notes-sidebar-summary"><span>笔记目录</span><strong>{filteredNotes.length}</strong></div>
             <div className="notes-timeline">
+              {pinnedNotes.length > 0 && (
+                <section className="notes-pinned-group" aria-label="置顶笔记">
+                  {pinnedNotes.map((note) => (
+                    <button id={`note-timeline-${note.id}`} key={note.id} className={activeNote?.id === note.id ? "active" : ""} type="button" onClick={() => {
+                        setActiveId(note.id); setEditing(null); setError(null);
+                        window.requestAnimationFrame(() => document.getElementById("note-reader-" + note.id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                      }}>
+                      <span>置顶</span><strong>{note.title}</strong>
+                    </button>
+                  ))}
+                </section>
+              )}
               {groupedNotes.map(([noteYear, items]) => (
                 <section key={noteYear}>
                   <h2>{noteYear}</h2>
@@ -512,6 +567,7 @@ export function InvestmentNotes() {
                     saving={saving}
                     onEdit={startEdit}
                     onDelete={(item) => { setDeleteTarget(item); setError(null); }}
+                    onTogglePin={togglePinned}
                   />
                 ))}
               </div>

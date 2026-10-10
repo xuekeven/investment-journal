@@ -71,6 +71,14 @@ export function TrashIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function PinIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 1024 1024" aria-hidden="true" {...props}>
+      <path d="M825.568 555.328l-287.392-289.28c-6.368-6.4-14.688-9.472-22.976-9.408-1.12-0.096-2.08-0.64-3.2-0.64-4.672 0-9.024 1.088-13.024 2.88-4.032 1.536-7.872 3.872-11.136 7.136l-259.328 258.88c-12.512 12.48-12.544 32.736-0.032 45.248 6.24 6.272 14.432 9.408 22.656 9.408 8.192 0 16.352-3.136 22.624-9.344L480 364.288V928c0 17.696 14.336 32 32 32s32-14.304 32-32V362.72l236.192 237.728c6.24 6.272 14.496 9.44 22.688 9.44s16.32-3.104 22.56-9.312c12.576-12.448 12.608-32.736 0.128-45.248zM864 192H160c-17.664 0-32-14.336-32-32s14.336-32 32-32h704c17.696 0 32 14.336 32 32s-14.304 32-32 32z" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function ArrowUpIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>

@@ -108,6 +108,7 @@ def test_investment_notes_are_single_user_and_structured() -> None:
     assert "index_ids" in note_table.columns
     assert "fund_codes" in note_table.columns
     assert "source_option_id" in note_table.columns
+    assert "is_pinned" in note_table.columns
     assert "content_option.id" in {
         key.target_fullname for key in note_table.foreign_keys
     }

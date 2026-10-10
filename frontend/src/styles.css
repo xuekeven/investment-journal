@@ -672,6 +672,8 @@ a { color: inherit; text-decoration: none; }
 .notes-timeline button span { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .notes-timeline button strong { overflow: hidden; color: var(--ink); font-size: 12px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .notes-timeline button small { color: #929c97; font-size: 10px; }
+.notes-timeline .notes-pinned-group { margin: 0 0 20px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.notes-timeline .notes-pinned-group button span { color: var(--green-dark); font-family: inherit; font-weight: 700; }
 .notes-empty-list { margin: 36px 0; color: #98a19d; font-size: 12px; text-align: center; }
 .note-panel { min-width: 0; min-height: 0; position: relative; overflow-y: auto; background: white; }
 .notes-error { margin: 16px 24px 0; padding: 10px 12px; border-radius: 9px; color: var(--red); background: #fdf0ee; font-size: 12px; }
@@ -694,6 +696,16 @@ a { color: inherit; text-decoration: none; }
 .note-meta-source { padding: 4px 8px; display: inline-flex; align-items: center; border-radius: 6px; color: #25613f; background: #d9f0d3; }
 .note-meta-source strong, .note-meta-source a { color: var(--green-dark); font-size: 12px; font-weight: 700; }
 .note-meta-source a { text-decoration: underline; text-decoration-color: rgba(7,90,56,.25); text-underline-offset: 3px; }
+.note-pin-button {
+  width: 30px; height: 30px; padding: 0; display: grid; place-items: center;
+  border: 0; color: #2c2c2c; background: transparent;
+  cursor: pointer; transition: color .15s ease, transform .15s ease;
+}
+.note-pin-button svg { width: 17px; height: 17px; }
+.note-pin-button:hover:not(:disabled) { transform: translateY(-1px); }
+.note-pin-button.active { color: #1afa29; }
+.note-pin-button:disabled { opacity: .55; cursor: wait; }
+.note-pin-button:focus-visible { outline: 2px solid #91c5a6; outline-offset: 2px; }
 .note-source-card, .note-summary-card, .note-body-card { margin-top: 30px; }
 .note-source-card > span, .note-summary-card > span { display: inline-block; margin-bottom: 12px; padding: 4px 8px; border-radius: 5px; color: #25613f; background: #d9f0d3; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
 .note-source-card > div { margin-bottom: 13px; }

@@ -165,6 +165,7 @@ class InvestmentNotePayload(ApiModel):
     title: str = Field(min_length=1, max_length=200)
     category: InvestmentNoteCategory
     action: InvestmentNoteAction | None = None
+    is_pinned: bool = False
     source_name: str | None = Field(default=None, max_length=200)
     source_option_id: int | None = None
     source_url: str | None = None

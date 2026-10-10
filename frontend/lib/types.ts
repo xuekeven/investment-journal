@@ -120,6 +120,7 @@ export interface InvestmentNotePayload {
   title: string;
   category: InvestmentNoteCategory;
   action: InvestmentNoteAction | null;
+  isPinned: boolean;
   sourceName: string | null;
   sourceOptionId: number | null;
   sourceUrl: string | null;
