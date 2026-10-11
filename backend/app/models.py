@@ -269,10 +269,10 @@ class AssetPositionConfig(ApiModel):
     name: str = Field(min_length=1, max_length=160)
     asset_class: str = Field(min_length=1, max_length=64)
     asset_class_option_id: int
-    purpose: str = Field(min_length=1, max_length=24)
-    purpose_option_id: int
-    risk_level: str = Field(min_length=1, max_length=16)
-    risk_option_id: int
+    purpose: str | None = Field(default=None, max_length=24)
+    purpose_option_id: int | None = None
+    risk_level: str | None = Field(default=None, max_length=16)
+    risk_option_id: int | None = None
     is_investable: bool = True
     sort_order: int = 0
 

@@ -367,13 +367,13 @@ class AssetPosition(Base, TimestampMixin):
     asset_class_option_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=False
     )
-    purpose: Mapped[str] = mapped_column(String(24), nullable=False)
-    purpose_option_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=False
+    purpose: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    purpose_option_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=True
     )
-    risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
-    risk_option_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=False
+    risk_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    risk_option_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("content_option.id", ondelete="RESTRICT"), nullable=True
     )
     is_investable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
@@ -414,6 +414,22 @@ class AssetSnapshotItem(Base, TimestampMixin):
     fx_rate: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, server_default=text("1"))
     amount_cny: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     expected_annual_rate: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    position_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    asset_class: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_class_option_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    purpose: Mapped[str | None] = mapped_column(String(24))
+    purpose_option_id: Mapped[int | None] = mapped_column(BigInteger)
+    risk_level: Mapped[str | None] = mapped_column(String(16))
+    risk_option_id: Mapped[int | None] = mapped_column(BigInteger)
+    is_investable: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    position_sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    account_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    account_region: Mapped[str] = mapped_column(String(16), nullable=False)
+    account_currency: Mapped[str] = mapped_column(String(16), nullable=False)
+    account_asset_category: Mapped[str] = mapped_column(String(64), nullable=False)
+    account_asset_category_option_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    account_target_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 4))
+    account_sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
 
     __table_args__ = (
         CheckConstraint("fx_rate > 0", name="ck_asset_snapshot_item_fx_positive"),

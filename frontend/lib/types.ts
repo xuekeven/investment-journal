@@ -175,10 +175,10 @@ export interface AssetPositionConfig {
   name: string;
   assetClass: string;
   assetClassOptionId: number;
-  purpose: AssetPurpose;
-  purposeOptionId: number;
-  riskLevel: AssetRiskLevel;
-  riskOptionId: number;
+  purpose: AssetPurpose | null;
+  purposeOptionId: number | null;
+  riskLevel: AssetRiskLevel | null;
+  riskOptionId: number | null;
   isInvestable: boolean;
   sortOrder: number;
 }

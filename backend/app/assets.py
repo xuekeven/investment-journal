@@ -52,6 +52,14 @@ def _option_value(options: dict[int, ContentOption], option_id: int, expected_ty
     return option.value
 
 
+def _optional_option_value(
+    options: dict[int, ContentOption], option_id: int | None, expected_type: str
+) -> str | None:
+    if option_id is None:
+        return None
+    return _option_value(options, option_id, expected_type)
+
+
 def _accounts_and_positions(session: Session) -> tuple[list[AssetAccount], list[AssetPosition]]:
     accounts = list(
         session.scalars(
@@ -105,9 +113,9 @@ def get_asset_config(session: Session) -> AssetConfigPayload:
                         "name": position.name,
                         "asset_class": _option_value(options, position.asset_class_option_id, "asset_class"),
                         "asset_class_option_id": position.asset_class_option_id,
-                        "purpose": _option_value(options, position.purpose_option_id, "asset_purpose"),
+                        "purpose": _optional_option_value(options, position.purpose_option_id, "asset_purpose"),
                         "purpose_option_id": position.purpose_option_id,
-                        "risk_level": _option_value(options, position.risk_option_id, "asset_risk"),
+                        "risk_level": _optional_option_value(options, position.risk_option_id, "asset_risk"),
                         "risk_option_id": position.risk_option_id,
                         "is_investable": position.is_investable,
                         "sort_order": position.sort_order,
@@ -198,9 +206,9 @@ def save_asset_config(
             position.asset_class_option_id = position_value.asset_class_option_id
             position.asset_class = _option_value(options, position_value.asset_class_option_id, "asset_class")
             position.purpose_option_id = position_value.purpose_option_id
-            position.purpose = _option_value(options, position_value.purpose_option_id, "asset_purpose")
+            position.purpose = _optional_option_value(options, position_value.purpose_option_id, "asset_purpose")
             position.risk_option_id = position_value.risk_option_id
-            position.risk_level = _option_value(options, position_value.risk_option_id, "asset_risk")
+            position.risk_level = _optional_option_value(options, position_value.risk_option_id, "asset_risk")
             position.is_investable = position_value.is_investable
             position.sort_order = position_value.sort_order or position_index
             position.is_active = position_was_active if preserve_missing else True
@@ -251,6 +259,11 @@ def save_asset_snapshot(session: Session, payload: AssetSnapshotPayload) -> Asse
     }
     if set(position_ids) - set(positions):
         raise ValueError("快照包含无效持仓")
+    accounts = {
+        item.id: item for item in session.scalars(
+            select(AssetAccount).where(AssetAccount.user_id == SINGLE_USER_ID)
+        )
+    }
     snapshot = session.scalar(
         select(AssetSnapshot).where(
             AssetSnapshot.user_id == SINGLE_USER_ID,
@@ -275,6 +288,10 @@ def save_asset_snapshot(session: Session, payload: AssetSnapshotPayload) -> Asse
     snapshot.note = payload.note.strip() if payload.note and payload.note.strip() else None
     snapshot.updated_at = datetime.now(UTC)
     for item in payload.items:
+        position = positions[item.position_id]
+        account = accounts.get(position.asset_account_id)
+        if account is None:
+            raise ValueError("快照包含无效账户")
         session.add(
             AssetSnapshotItem(
                 asset_snapshot_id=snapshot.id,
@@ -283,6 +300,22 @@ def save_asset_snapshot(session: Session, payload: AssetSnapshotPayload) -> Asse
                 fx_rate=item.fx_rate,
                 amount_cny=item.amount * item.fx_rate,
                 expected_annual_rate=item.expected_annual_rate,
+                position_name=position.name,
+                asset_class=position.asset_class,
+                asset_class_option_id=position.asset_class_option_id,
+                purpose=position.purpose,
+                purpose_option_id=position.purpose_option_id,
+                risk_level=position.risk_level,
+                risk_option_id=position.risk_option_id,
+                is_investable=position.is_investable,
+                position_sort_order=position.sort_order,
+                account_name=account.name,
+                account_region=account.region,
+                account_currency=account.currency,
+                account_asset_category=account.asset_category,
+                account_asset_category_option_id=account.asset_category_option_id,
+                account_target_amount=account.target_amount,
+                account_sort_order=account.sort_order,
             )
         )
     session.add_all(
@@ -300,14 +333,12 @@ def save_asset_snapshot(session: Session, payload: AssetSnapshotPayload) -> Asse
 
 def _snapshot_totals(
     items: list[AssetSnapshotItem],
-    positions: dict[int, AssetPosition],
 ) -> tuple[float, float]:
     net = sum(float(item.amount_cny) for item in items)
     investable = sum(
         float(item.amount_cny)
         for item in items
-        if (position := positions.get(item.asset_position_id)) is not None
-        and position.is_investable
+        if item.is_investable
     )
     return net, investable
 
@@ -342,15 +373,11 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
             select(AssetSnapshotItem).where(AssetSnapshotItem.asset_snapshot_id == selected.id)
         )
     ) if selected else []
-    item_by_position = {item.asset_position_id: item for item in selected_items}
-    net_assets, investable_assets = _snapshot_totals(selected_items, all_positions)
-    account_by_id = {account.id: account for account in all_accounts}
+    net_assets, investable_assets = _snapshot_totals(selected_items)
     domestic_assets = sum(
         float(item.amount_cny)
         for item in selected_items
-        if (position := all_positions.get(item.asset_position_id)) is not None
-        and (account := account_by_id.get(position.asset_account_id)) is not None
-        and account.region == "境内"
+        if item.account_region == "境内"
     )
     overseas_assets = net_assets - domestic_assets
     previous_change = None
@@ -366,7 +393,7 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
                     )
                 )
             )
-            previous_net, _ = _snapshot_totals(previous_items, all_positions)
+            previous_net, _ = _snapshot_totals(previous_items)
             if previous_net:
                 previous_change = round((net_assets / previous_net - 1) * 100, 2)
     snapshot_targets = list(session.scalars(
@@ -382,10 +409,9 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
         }
     risk_amounts = {risk: 0.0 for risk in RISK_ORDER}
     for item in selected_items:
-        position = all_positions.get(item.asset_position_id)
-        if position and position.is_investable and position.risk_level in risk_amounts:
-            risk_amounts[position.risk_level] += float(item.amount_cny)
-    allocation_base = sum(risk_amounts.values())
+        if item.is_investable and item.risk_level in risk_amounts:
+            risk_amounts[item.risk_level] += float(item.amount_cny)
+    allocation_base = investable_assets
     allocations = []
     for risk in RISK_ORDER:
         target = targets.get(risk)
@@ -408,7 +434,7 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
                 select(AssetSnapshotItem).where(AssetSnapshotItem.asset_snapshot_id == snapshot.id)
             )
         )
-        history_net, history_investable = _snapshot_totals(items, all_positions)
+        history_net, history_investable = _snapshot_totals(items)
         history.append(
             AssetHistoryPoint(
                 snapshot_id=snapshot.id,
@@ -417,64 +443,93 @@ def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> Ass
                 investable_assets=round(history_investable, 4),
             )
         )
-    if selected is not None:
-        displayed_positions = [
-            position
-            for position_id in item_by_position
-            if (position := all_positions.get(position_id)) is not None
-        ]
-        displayed_account_ids = {position.asset_account_id for position in displayed_positions}
-        displayed_accounts = [
-            account for account in all_accounts if account.id in displayed_account_ids
-        ]
-    else:
-        displayed_positions = active_positions
-        displayed_accounts = active_accounts
-    displayed_positions.sort(key=lambda item: (item.sort_order, item.id))
-    displayed_accounts.sort(key=lambda item: (item.sort_order, item.id))
-    positions_by_account: dict[int, list[AssetPosition]] = {}
-    for position in displayed_positions:
-        positions_by_account.setdefault(position.asset_account_id, []).append(position)
     dashboard_accounts = []
-    for account in displayed_accounts:
-        dashboard_positions = []
-        for position in positions_by_account.get(account.id, []):
-            item = item_by_position.get(position.id)
-            dashboard_positions.append(
+    if selected is not None:
+        snapshot_items_by_account: dict[int, list[tuple[AssetPosition, AssetSnapshotItem]]] = {}
+        for item in selected_items:
+            position = all_positions.get(item.asset_position_id)
+            if position is not None:
+                snapshot_items_by_account.setdefault(position.asset_account_id, []).append((position, item))
+        ordered_snapshot_accounts = sorted(
+            snapshot_items_by_account.items(),
+            key=lambda entry: (entry[1][0][1].account_sort_order, entry[0]),
+        )
+        for account_id, position_items in ordered_snapshot_accounts:
+            position_items.sort(key=lambda entry: (entry[1].position_sort_order, entry[0].id))
+            account_item = position_items[0][1]
+            dashboard_positions = [
+                AssetDashboardPosition(
+                    id=position.id,
+                    name=item.position_name,
+                    asset_class=item.asset_class,
+                    asset_class_option_id=item.asset_class_option_id,
+                    purpose=item.purpose,
+                    purpose_option_id=item.purpose_option_id,
+                    risk_level=item.risk_level,
+                    risk_option_id=item.risk_option_id,
+                    is_investable=item.is_investable,
+                    sort_order=item.position_sort_order,
+                    amount=float(item.amount),
+                    fx_rate=float(item.fx_rate),
+                    amount_cny=float(item.amount_cny),
+                    expected_annual_rate=(
+                        float(item.expected_annual_rate)
+                        if item.expected_annual_rate is not None else None
+                    ),
+                )
+                for position, item in position_items
+            ]
+            dashboard_accounts.append(
+                AssetDashboardAccount(
+                    id=account_id,
+                    name=account_item.account_name,
+                    region=account_item.account_region,
+                    currency=account_item.account_currency,
+                    asset_category=account_item.account_asset_category,
+                    asset_category_option_id=account_item.account_asset_category_option_id,
+                    target_amount=(
+                        float(account_item.account_target_amount)
+                        if account_item.account_target_amount is not None else None
+                    ),
+                    sort_order=account_item.account_sort_order,
+                    current_amount=round(sum(item.amount_cny for item in dashboard_positions), 4),
+                    positions=dashboard_positions,
+                )
+            )
+    else:
+        positions_by_account: dict[int, list[AssetPosition]] = {}
+        for position in sorted(active_positions, key=lambda item: (item.sort_order, item.id)):
+            positions_by_account.setdefault(position.asset_account_id, []).append(position)
+        for account in sorted(active_accounts, key=lambda item: (item.sort_order, item.id)):
+            dashboard_positions = [
                 AssetDashboardPosition(
                     id=position.id,
                     name=position.name,
                     asset_class=_option_value(options, position.asset_class_option_id, "asset_class"),
                     asset_class_option_id=position.asset_class_option_id,
-                    purpose=_option_value(options, position.purpose_option_id, "asset_purpose"),
+                    purpose=_optional_option_value(options, position.purpose_option_id, "asset_purpose"),
                     purpose_option_id=position.purpose_option_id,
-                    risk_level=_option_value(options, position.risk_option_id, "asset_risk"),
+                    risk_level=_optional_option_value(options, position.risk_option_id, "asset_risk"),
                     risk_option_id=position.risk_option_id,
                     is_investable=position.is_investable,
                     sort_order=position.sort_order,
-                    amount=float(item.amount) if item else 0,
-                    fx_rate=float(item.fx_rate) if item else 1,
-                    amount_cny=float(item.amount_cny) if item else 0,
-                    expected_annual_rate=(
-                        float(item.expected_annual_rate)
-                        if item and item.expected_annual_rate is not None else None
-                    ),
+                )
+                for position in positions_by_account.get(account.id, [])
+            ]
+            dashboard_accounts.append(
+                AssetDashboardAccount(
+                    id=account.id,
+                    name=account.name,
+                    region=account.region,
+                    currency=account.currency,
+                    asset_category=_option_value(options, account.asset_category_option_id, "asset_category"),
+                    asset_category_option_id=account.asset_category_option_id,
+                    target_amount=float(account.target_amount) if account.target_amount is not None else None,
+                    sort_order=account.sort_order,
+                    current_amount=0,
+                    positions=dashboard_positions,
                 )
             )
-        dashboard_accounts.append(
-            AssetDashboardAccount(
-                id=account.id,
-                name=account.name,
-                region=account.region,
-                currency=account.currency,
-                asset_category=_option_value(options, account.asset_category_option_id, "asset_category"),
-                asset_category_option_id=account.asset_category_option_id,
-                target_amount=float(account.target_amount) if account.target_amount is not None else None,
-                sort_order=account.sort_order,
-                current_amount=round(sum(item.amount_cny for item in dashboard_positions), 4),
-                positions=dashboard_positions,
-            )
-        )
     return AssetDashboard(
         snapshot_id=selected.id if selected else None,
         snapshot_date=selected.snapshot_date if selected else None,

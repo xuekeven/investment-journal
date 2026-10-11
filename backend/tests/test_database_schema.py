@@ -160,7 +160,29 @@ def test_asset_management_uses_structured_snapshots() -> None:
     assert "purpose_option_id" in position_table.columns
     assert "risk_option_id" in position_table.columns
     assert "risk_level" in position_table.columns
+    assert position_table.c.purpose.nullable
+    assert position_table.c.purpose_option_id.nullable
+    assert position_table.c.risk_level.nullable
+    assert position_table.c.risk_option_id.nullable
     assert "is_investable" in position_table.columns
+    assert {
+        "position_name",
+        "asset_class",
+        "asset_class_option_id",
+        "purpose",
+        "purpose_option_id",
+        "risk_level",
+        "risk_option_id",
+        "is_investable",
+        "position_sort_order",
+        "account_name",
+        "account_region",
+        "account_currency",
+        "account_asset_category",
+        "account_asset_category_option_id",
+        "account_target_amount",
+        "account_sort_order",
+    } <= set(snapshot_item_table.columns.keys())
     assert {key.target_fullname for key in snapshot_item_table.foreign_keys} == {
         "asset_snapshot.id",
         "asset_position.id",

@@ -82,6 +82,10 @@ function formatAmount(value: number) {
   }).format(value);
 }
 
+function nonInvestableAssets(netAssets: number, investableAssets: number) {
+  return netAssets - investableAssets;
+}
+
 function today() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -91,6 +95,7 @@ function SummaryIcon({ type }: { type: string }) {
   const paths: Record<string, React.ReactNode> = {
     total: <><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v5c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 11v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5" /></>,
     investable: <><path d="M4 7h15v12H4z" /><path d="M6 4h11v3M14 11h7v5h-7z" /></>,
+    noninvestable: <><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2" /></>,
     domestic: <><path d="M3 9h18L12 3 3 9Z" /><path d="M5 19h14M7 10v7m5-7v7m5-7v7" /></>,
     overseas: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></>,
   };
@@ -119,11 +124,12 @@ function buildAssetBreakdown(
   const amounts = new Map<string, number>();
   dashboard.accounts.forEach((account) => {
     account.positions.forEach((position) => {
+      if (!position.isInvestable) return;
       const label = position[field] || "未知";
       amounts.set(label, (amounts.get(label) ?? 0) + position.amountCny);
     });
   });
-  const total = dashboard.summary.netAssets;
+  const total = dashboard.summary.investableAssets;
   return Array.from(amounts, ([label, amount]) => ({
     label,
     amount,
@@ -251,7 +257,7 @@ function PurposePie({ items, comparisonItems = [], label, compact = false }: { i
       {label && <strong className="asset-purpose-period">{label}</strong>}
       <div className="asset-purpose-breakdown">
         <svg className="asset-purpose-pie-chart" viewBox="0 0 520 285" role="img" aria-label="资金用途占比饼状图">
-          {positionedSlices.map(({ item, color, path }) => <path key={item.label} d={path} fill={color} className="asset-purpose-slice"><title>{item.label}：{formatAmount(item.amount)} 万元，占总资产 {item.percent.toFixed(1)}%</title></path>)}
+          {positionedSlices.map(({ item, color, path }) => <path key={item.label} d={path} fill={color} className="asset-purpose-slice"><title>{item.label}：{formatAmount(item.amount)} 万元，占可支配资产 {item.percent.toFixed(1)}%</title></path>)}
           {positionedSlices.map(({ item, color, edge, lineEnd, isRight }) => {
             const textX = lineEnd.x + (isRight ? 8 : -8);
             const labelY = lineEnd.y - 3;
@@ -430,41 +436,13 @@ function AssetComparisonDialog({ dashboard, onClose }: { dashboard: AssetDashboa
   </div>;
 }
 
-type AssetMetricInfo = "total" | "investable";
-
-function AssetMetricInfoDialog({ metric, onClose }: { metric: AssetMetricInfo; onClose: () => void }) {
-  const content = metric === "total"
-    ? {
-        eyebrow: "资产口径",
-        title: "总资产",
-        description: "当前资产记录中所有项目按人民币折算后的合计。现金、基金、公积金等资产按正数计入，信用卡等负债按负数扣减。",
-        formula: "总资产 = 境内资产 + 境外资产",
-      }
-    : {
-        eyebrow: "配置口径",
-        title: "可支配资产",
-        description: "当前可以由你随时调动和支配的资产合计。住房公积金、医保个人账户等暂时无法自由调动的资产不计入。",
-        formula: "可支配资产 = 标记为“可支配”的项目金额合计",
-      };
-
-  return (
-    <div className="asset-dialog-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="asset-dialog asset-info-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-metric-info-title">
-        <header><div><span>{content.eyebrow}</span><h2 id="asset-metric-info-title">{content.title}</h2></div><button type="button" onClick={onClose} aria-label="关闭"><CloseIcon /></button></header>
-        <div className="asset-info-content"><p>{content.description}</p><strong>{content.formula}</strong></div>
-        <footer className="asset-info-footer"><button className="primary" type="button" onClick={onClose}>知道了</button></footer>
-      </section>
-    </div>
-  );
-}
-
 function TrendChart({ dashboard }: { dashboard: AssetDashboard }) {
   const points = dashboard.history.slice(-6);
   if (!points.length) {
     return <div className="asset-empty-chart">保存两期以上记录后显示资产趋势</div>;
   }
 
-  const values = points.flatMap((item) => [item.netAssets, item.investableAssets]);
+  const values = points.flatMap((item) => [item.netAssets, item.investableAssets, nonInvestableAssets(item.netAssets, item.investableAssets)]);
   const rawMinimum = Math.min(...values);
   const rawMaximum = Math.max(...values);
   const padding = Math.max((rawMaximum - rawMinimum) * 0.18, 0.5);
@@ -478,13 +456,13 @@ function TrendChart({ dashboard }: { dashboard: AssetDashboard }) {
   const chartBottom = 246;
   const y = (value: number) => chartBottom - ((value - minimum) / range) * (chartBottom - chartTop);
   const ticks = Array.from({ length: 5 }, (_, index) => maximum - index * range / 4);
-  const path = (key: "netAssets" | "investableAssets") => points
-    .map((item, index) => `${index ? "L" : "M"}${x(index)},${y(item[key])}`)
+  const path = (value: (item: (typeof points)[number]) => number) => points
+    .map((item, index) => `${index ? "L" : "M"}${x(index)},${y(value(item))}`)
     .join(" ");
 
   return (
     <div className="asset-trend-chart">
-      <svg viewBox="0 0 640 300" role="img" aria-label="总资产与可支配资产金额趋势">
+      <svg viewBox="0 0 640 300" role="img" aria-label="总资产、可支配资产与不可支配资产金额趋势">
         <text x="8" y="19" className="asset-chart-axis-title">金额（万元）</text>
         {ticks.map((tick) => {
           const lineY = y(tick);
@@ -493,17 +471,21 @@ function TrendChart({ dashboard }: { dashboard: AssetDashboard }) {
             <text x="50" y={lineY + 3} textAnchor="end" className="asset-chart-axis-label">{formatAmount(tick)}</text>
           </g>;
         })}
-        <path d={path("netAssets")} className="asset-chart-line net" />
-        <path d={path("investableAssets")} className="asset-chart-line investable" />
-        {points.map((item, index) => (
-          <g key={item.snapshotDate}>
+        <path d={path((item) => item.netAssets)} className="asset-chart-line net" />
+        <path d={path((item) => item.investableAssets)} className="asset-chart-line investable" />
+        <path d={path((item) => nonInvestableAssets(item.netAssets, item.investableAssets))} className="asset-chart-line non-investable" />
+        {points.map((item, index) => {
+          const nonInvestable = nonInvestableAssets(item.netAssets, item.investableAssets);
+          return <g key={item.snapshotDate}>
             <circle cx={x(index)} cy={y(item.netAssets)} r="4" className="asset-chart-dot net"><title>{item.snapshotDate} 总资产 {formatAmount(item.netAssets)} 万元</title></circle>
             <circle cx={x(index)} cy={y(item.investableAssets)} r="4" className="asset-chart-dot investable"><title>{item.snapshotDate} 可支配资产 {formatAmount(item.investableAssets)} 万元</title></circle>
+            <circle cx={x(index)} cy={y(nonInvestable)} r="4" className="asset-chart-dot non-investable"><title>{item.snapshotDate} 不可支配资产 {formatAmount(nonInvestable)} 万元</title></circle>
             <text x={x(index)} y={y(item.netAssets) - 9} textAnchor="middle" className="asset-chart-value net">{formatAmount(item.netAssets)}</text>
             <text x={x(index)} y={y(item.investableAssets) + 15} textAnchor="middle" className="asset-chart-value investable">{formatAmount(item.investableAssets)}</text>
+            <text x={x(index)} y={y(nonInvestable) - 9} textAnchor="middle" className="asset-chart-value non-investable">{formatAmount(nonInvestable)}</text>
             <text x={x(index)} y="286" textAnchor="middle" className="asset-chart-date">{item.snapshotDate.slice(5)}</text>
-          </g>
-        ))}
+          </g>;
+        })}
       </svg>
     </div>
   );
@@ -595,10 +577,10 @@ function newPosition(index: number) {
     name: "",
     assetClass: "其他",
     assetClassOptionId: 0,
-    purpose: "" as AssetPurpose,
-    purposeOptionId: 0,
-    riskLevel: "" as AssetRiskLevel,
-    riskOptionId: 0,
+    purpose: null,
+    purposeOptionId: null,
+    riskLevel: null,
+    riskOptionId: null,
     isInvestable: true,
     sortOrder: index,
   };
@@ -709,10 +691,6 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
     event.preventDefault();
     if (!config || !accounts) return;
     setError(null);
-    if (accounts.some((account) => account.positions.some((position) => !position.riskOptionId || !position.purposeOptionId))) {
-      setError("请为所有持仓选择风险等级和资金用途后再保存。");
-      return;
-    }
     const accountNames = accounts.map((account) => account.name.trim());
     if (new Set(accountNames).size !== accountNames.length) {
       setError("账户名称不能重复。");
@@ -812,8 +790,8 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
                                 )}
                                 {position ? <>
                                   <td><AssetSelect id={`record-class-${accountIndex}-${positionIndex}`} value={String(position.assetClassOptionId)} options={selectOptions(options.assetClasses)} onChange={(value) => { const selected = options.assetClasses.find((item) => item.id === Number(value)); if (selected) updateAccount(accountIndex, { positions: account.positions.map((item, index) => index === positionIndex ? { ...item, name: item.id ? item.name : selected.value, assetClass: selected.value, assetClassOptionId: Number(value) } : item) }); }} /></td>
-                                  <td><AssetSelect id={`record-risk-${accountIndex}-${positionIndex}`} value={position.riskOptionId ? String(position.riskOptionId) : ""} options={selectOptions(options.risks)} required className={!position.riskOptionId ? "is-empty" : ""} onChange={(value) => { const selected = options.risks.find((item) => item.id === Number(value)); if (selected) updateAccount(accountIndex, { positions: account.positions.map((item, index) => index === positionIndex ? { ...item, riskLevel: selected.value, riskOptionId: Number(value) } : item) }); }} /></td>
-                                  <td><AssetSelect id={`record-purpose-${accountIndex}-${positionIndex}`} value={position.purposeOptionId ? String(position.purposeOptionId) : ""} options={selectOptions(options.purposes)} required className={!position.purposeOptionId ? "is-empty" : ""} onChange={(value) => { const selected = options.purposes.find((item) => item.id === Number(value)); if (selected) updateAccount(accountIndex, { positions: account.positions.map((item, index) => index === positionIndex ? { ...item, purpose: selected.value, purposeOptionId: Number(value) } : item) }); }} /></td>
+                                  <td><AssetSelect id={`record-risk-${accountIndex}-${positionIndex}`} value={position.riskOptionId ? String(position.riskOptionId) : ""} options={[{ value: "", label: "--" }, ...selectOptions(options.risks)]} onChange={(value) => { const selected = options.risks.find((item) => item.id === Number(value)); updateAccount(accountIndex, { positions: account.positions.map((item, index) => index === positionIndex ? { ...item, riskLevel: selected?.value ?? null, riskOptionId: selected?.id ?? null } : item) }); }} /></td>
+                                  <td><AssetSelect id={`record-purpose-${accountIndex}-${positionIndex}`} value={position.purposeOptionId ? String(position.purposeOptionId) : ""} options={[{ value: "", label: "--" }, ...selectOptions(options.purposes)]} onChange={(value) => { const selected = options.purposes.find((item) => item.id === Number(value)); updateAccount(accountIndex, { positions: account.positions.map((item, index) => index === positionIndex ? { ...item, purpose: selected?.value ?? null, purposeOptionId: selected?.id ?? null } : item) }); }} /></td>
                                   <td className="asset-record-check-cell"><label className={`tag-filter-checkbox asset-config-checkbox ${position.isInvestable ? "active" : ""}`} aria-label="计入资产配置"><input type="checkbox" checked={position.isInvestable} onChange={(event) => updateAccount(accountIndex, { positions: account.positions.map((item, index) => index === positionIndex ? { ...item, isInvestable: event.target.checked } : item) })} /><i aria-hidden="true">{position.isInvestable ? "✓" : ""}</i></label></td>
                                   <td><input className="asset-record-amount" type="number" step="0.1" value={position.amount} onChange={(event) => updateAccount(accountIndex, { positions: account.positions.map((item, index) => index === positionIndex ? { ...item, amount: event.target.value } : item) })} required /></td>
                                   <td className="asset-record-action-cell"><div className="asset-record-action-buttons"><button className="asset-position-drag-handle" type="button" draggable aria-label="拖动调整持仓顺序" title="拖动调整顺序" onDragStart={(event) => { setDraggedPosition({ accountIndex, positionIndex }); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", `${accountIndex}:${positionIndex}`); }} onDragEnd={() => { setDraggedPosition(null); setDragOverPosition(null); }}><span aria-hidden="true">⠿</span></button><button className="asset-position-delete" type="button" aria-label="删除持仓" title="删除持仓" onClick={() => updateAccount(accountIndex, { positions: account.positions.filter((_, index) => index !== positionIndex) })}><TrashIcon /></button></div></td>
@@ -904,7 +882,6 @@ export function AssetManagement() {
   const [error, setError] = useState<string | null>(null);
   const [recordMode, setRecordMode] = useState<"create" | "edit" | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [metricInfo, setMetricInfo] = useState<AssetMetricInfo | null>(null);
   const [holdingSearch, setHoldingSearch] = useState("");
   const [assetClassFilter, setAssetClassFilter] = useState("全部品种");
   const [purposeFilter, setPurposeFilter] = useState("全部用途");
@@ -994,8 +971,8 @@ export function AssetManagement() {
           const matchesKeyword = !keyword || [account.name, position.assetClass]
             .some((value) => value.toLocaleLowerCase("zh-CN").includes(keyword));
           const matchesAssetClass = assetClassFilter === "全部品种" || position.assetClass === assetClassFilter;
-          const matchesPurpose = purposeFilter === "全部用途" || position.purpose === purposeFilter;
-          const matchesRisk = riskFilter === "全部风险" || position.riskLevel === riskFilter;
+          const matchesPurpose = purposeFilter === "全部用途" || (purposeFilter === "--" ? !position.purpose : position.purpose === purposeFilter);
+          const matchesRisk = riskFilter === "全部风险" || (riskFilter === "--" ? !position.riskLevel : position.riskLevel === riskFilter);
           return matchesKeyword && matchesAssetClass && matchesPurpose && matchesRisk;
         }),
       }))
@@ -1020,10 +997,11 @@ export function AssetManagement() {
   if (error || !dashboard) return <main className="asset-page page-width"><div className="asset-page-state error">{error}</div></main>;
 
   const cards = [
-    ["总资产", dashboard.summary.netAssets, "◎", "total"],
-    ["可支配资产", dashboard.summary.investableAssets, "▣", "investable"],
-    ["境内资产", dashboard.summary.domesticAssets, "▥", null],
-    ["境外资产", dashboard.summary.overseasAssets, "◉", null],
+    ["总资产", dashboard.summary.netAssets, "total"],
+    ["可支配资产", dashboard.summary.investableAssets, "investable"],
+    ["不可支配资产", nonInvestableAssets(dashboard.summary.netAssets, dashboard.summary.investableAssets), "noninvestable"],
+    ["境内资产", dashboard.summary.domesticAssets, "domestic"],
+    ["境外资产", dashboard.summary.overseasAssets, "overseas"],
   ] as const;
   const assetClassBreakdown = buildAssetBreakdown(dashboard, "assetClass");
   const purposeBreakdown = buildAssetBreakdown(dashboard, "purpose");
@@ -1032,6 +1010,7 @@ export function AssetManagement() {
   const referenceValues = activeReferenceDashboard ? [
     activeReferenceDashboard.summary.netAssets,
     activeReferenceDashboard.summary.investableAssets,
+    nonInvestableAssets(activeReferenceDashboard.summary.netAssets, activeReferenceDashboard.summary.investableAssets),
     activeReferenceDashboard.summary.domesticAssets,
     activeReferenceDashboard.summary.overseasAssets,
   ] : [];
@@ -1064,8 +1043,8 @@ export function AssetManagement() {
             <div className="asset-holdings-filters">
               <label className="search-box asset-holdings-search"><SearchIcon /><input value={holdingSearch} onChange={(event) => setHoldingSearch(event.target.value)} placeholder="搜索账户或投资品种" aria-label="搜索账户或投资品种" />{holdingSearch && <button type="button" onClick={() => setHoldingSearch("")} aria-label="清空搜索"><CloseIcon /></button>}</label>
               <AssetSelect id="asset-class-filter" label="品种" value={assetClassFilter} options={["全部品种", ...assetClassOptions]} onChange={setAssetClassFilter} className="asset-class-filter" />
-              <AssetSelect id="asset-purpose-filter" label="用途" value={purposeFilter} options={["全部用途", ...PURPOSES]} onChange={setPurposeFilter} />
-              <AssetSelect id="asset-risk-filter" label="风险" value={riskFilter} options={["全部风险", ...RISKS]} onChange={setRiskFilter} />
+              <AssetSelect id="asset-risk-filter" label="风险" value={riskFilter} options={["全部风险", "--", ...RISKS]} onChange={setRiskFilter} />
+              <AssetSelect id="asset-purpose-filter" label="用途" value={purposeFilter} options={["全部用途", "--", ...PURPOSES]} onChange={setPurposeFilter} />
               <span className="asset-filter-count">{filteredPositionCount} 项</span>
               {filtersActive && <button type="button" onClick={() => { setHoldingSearch(""); setAssetClassFilter("全部品种"); setPurposeFilter("全部用途"); setRiskFilter("全部风险"); }}>重置</button>}
             </div>
@@ -1073,8 +1052,8 @@ export function AssetManagement() {
               {accountTables.map((group) => (
                 <div className="asset-table-wrap" key={group.region}>
                   <table>
-                    <thead><tr><th>{group.region}账户</th><th>投资品种</th><th>风险等级</th><th>资金用途</th><th>当前金额</th><th>占比</th></tr></thead>
-                    <tbody>{group.accounts.length ? group.accounts.flatMap((account) => account.positions.map((position, positionIndex) => <tr className={positionIndex === 0 ? "asset-account-start" : undefined} key={position.id}>{positionIndex === 0 && <th className="asset-account-cell" rowSpan={account.positions.length}><div className="asset-account-heading"><strong>{account.name}</strong><span className="asset-category-pill">{account.assetCategory}</span></div><small>{formatAmount(account.positions.reduce((total, item) => total + item.amountCny, 0))} 万元</small></th>}<td>{position.assetClass}</td><td><span className={`risk-pill risk-${position.riskLevel}`}>{position.riskLevel}</span></td><td><span className={`purpose-pill purpose-${position.purpose}`}>{position.purpose}</span></td><td className="asset-current-amount"><strong>{formatAmount(position.amountCny)}</strong> 万元</td><td className="asset-current-share">{dashboard.summary.netAssets ? `${(position.amountCny / dashboard.summary.netAssets * 100).toFixed(1)}%` : "—"}</td></tr>)) : <tr><td className="asset-filter-empty" colSpan={6}>没有符合当前筛选条件的{group.region}持仓</td></tr>}</tbody>
+                    <thead><tr><th>{group.region}账户</th><th className="asset-class-heading">投资品种</th><th>风险等级</th><th>资金用途</th><th className="asset-investable-heading">可支配</th><th>当前金额</th><th>占比</th></tr></thead>
+                    <tbody>{group.accounts.length ? group.accounts.flatMap((account) => account.positions.map((position, positionIndex) => <tr className={positionIndex === 0 ? "asset-account-start" : undefined} key={position.id}>{positionIndex === 0 && <th className="asset-account-cell" rowSpan={account.positions.length}><div className="asset-account-heading"><strong>{account.name}</strong><span className="asset-category-pill">{account.assetCategory}</span></div><small>{formatAmount(account.positions.reduce((total, item) => total + item.amountCny, 0))} 万元</small></th>}<td className="asset-class-cell">{position.assetClass}</td><td><span className={`risk-pill ${position.riskLevel ? `risk-${position.riskLevel}` : "empty"}`}>{position.riskLevel || "--"}</span></td><td><span className={`purpose-pill ${position.purpose ? `purpose-${position.purpose}` : "empty"}`}>{position.purpose || "--"}</span></td><td className="asset-investable-status"><span className={position.isInvestable ? "active" : ""} aria-label={position.isInvestable ? "可支配" : "不可支配"}>{position.isInvestable ? "✓" : "—"}</span></td><td className="asset-current-amount"><strong>{formatAmount(position.amountCny)}</strong> 万元</td><td className="asset-current-share">{dashboard.summary.netAssets ? `${(position.amountCny / dashboard.summary.netAssets * 100).toFixed(1)}%` : "—"}</td></tr>)) : <tr><td className="asset-filter-empty" colSpan={7}>没有符合当前筛选条件的{group.region}持仓</td></tr>}</tbody>
                   </table>
                 </div>
               ))}
@@ -1083,14 +1062,14 @@ export function AssetManagement() {
         </article>
       </section>
       <section className="asset-summary-grid">
-        {cards.map(([label, value, icon, infoKey], index) => {
+        {cards.map(([label, value, icon], index) => {
           const referenceValue = referenceValues[index];
           const delta = referenceValue === undefined ? null : value - referenceValue;
           const deltaPercent = referenceValue ? (delta ?? 0) / referenceValue * 100 : 0;
           const unchanged = delta !== null && Math.abs(delta) < 0.005;
           return (
             <article key={label}><SummaryIcon type={icon} /><div className="asset-summary-card-content"><div className="asset-summary-main">
-              <span>{label}{infoKey && <button className="asset-metric-info" type="button" aria-label={`查看${label}含义`} onClick={() => setMetricInfo(infoKey)}>!</button>}</span>
+              <span>{label}</span>
               <strong>{formatAmount(value)} <small>万</small></strong>
             </div>
               {delta !== null && <em className={unchanged ? "asset-period-change unchanged" : delta >= 0 ? "asset-period-change up" : "asset-period-change down"}>
@@ -1106,6 +1085,7 @@ export function AssetManagement() {
       </section>
       <div className="asset-stat-layout">
       <section className="asset-overview-grid">
+        <article className="asset-card asset-trend-card"><header><h2>资产趋势</h2><div><i className="net" />总资产<i className="investable" />可支配资产<i className="non-investable" />不可支配资产</div></header><TrendChart dashboard={dashboard} /></article>
         <PurposeBreakdownCard items={purposeBreakdown} comparisonItems={referencePurposeBreakdown} />
         <article className="asset-card asset-allocation-card">
           <header><h2>风险配置</h2><div><i className="target" />目标比例<i className="actual" />实际比例</div></header>
@@ -1132,7 +1112,6 @@ export function AssetManagement() {
             </div>
           </div>
         </article>
-        <article className="asset-card asset-trend-card"><header><h2>资产趋势</h2><div><i className="net" />总资产<i className="investable" />可支配资产</div></header><TrendChart dashboard={dashboard} /></article>
       </section>
       <section className="asset-breakdown-grid">
         <AssetClassBreakdownCard items={assetClassBreakdown} comparisonItems={referenceAssetClassBreakdown} />
@@ -1140,7 +1119,6 @@ export function AssetManagement() {
       </div>
       {comparisonOpen && <AssetComparisonDialog dashboard={dashboard} onClose={() => setComparisonOpen(false)} />}
       {settingsOpen && <OptionsDialog onClose={() => setSettingsOpen(false)} onSaved={() => { setSettingsOpen(false); void load(dashboard.snapshotId ?? undefined); }} />}
-      {metricInfo && <AssetMetricInfoDialog metric={metricInfo} onClose={() => setMetricInfo(null)} />}
     </main>
   );
 }
@@ -1191,7 +1169,7 @@ function ComparisonAssetClassCard({ currentItems, baselineItems }: { currentItem
     .sort((left, right) => Math.abs(current.get(right)?.amount ?? 0) - Math.abs(current.get(left)?.amount ?? 0));
 
   return <article className="asset-card asset-compare-table-card">
-    <header><h2>投资品种变化</h2><span>按当前总资产占比排序</span></header>
+    <header><h2>投资品种变化</h2><span>按当前可支配资产占比排序</span></header>
     <div className="asset-compare-table-wrap">
       <table className="asset-compare-table">
         <thead><tr><th>投资品种</th><th>基准（万元）</th><th>当前（万元）</th><th>变化</th><th /></tr></thead>
