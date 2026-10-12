@@ -84,9 +84,13 @@ Home Server 上的后端连接同一个数据库，但使用本机回环地址�
 DATABASE_URL=postgresql+psycopg://username:password@127.0.0.1:5432/index_fund_comparator
 IFC_DATA_MODE=database
 IFC_CORS_ORIGINS=http://YOUR_SERVER_IP:6006
+IFC_WEWORK_RELAY_URL=http://aliserver.tailed5977.ts.net:5001
+IFC_WEWORK_RELAY_API_KEY=与-wework-send-一致的-RELAY_API_KEY
 ```
 
 两份配置中的数据库名、用户和数据内容相同，只有主机地址不同。也兼容不带驱动名的 `postgresql://...` 写法，后端会统一使用 `psycopg`。
+
+限额变动提醒通过 `wework-send` 中转发送企业微信消息。中转地址优先使用 Tailnet MagicDNS，API Key 必须与 `wework-send` 的 `RELAY_API_KEY` 保持一致，且不得提交到仓库。
 
 共享数据库必须只通过 Tailscale 或可信局域网访问，不要将 PostgreSQL `5432` 暴露到公网。PostgreSQL 的 `listen_addresses` 和 `pg_hba.conf` 应只允许服务器回环地址及明确授权的本地设备地址。
 

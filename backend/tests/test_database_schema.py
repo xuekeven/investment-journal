@@ -16,6 +16,8 @@ CORE_TABLES = {
     "sales_limit_history",
     "calculated_metric",
     "user_fund_tag",
+    "limit_notification_subscription",
+    "limit_notification_outbox",
     "investment_note",
     "knowledge_article",
     "content_option",
@@ -74,6 +76,21 @@ def test_single_user_tags_are_bound_to_fund_shares() -> None:
         if constraint.name == "ck_user_fund_tag_amount"
     )
     assert ">= 0" in str(amount_constraint.sqltext)
+
+
+def test_limit_notifications_are_unique_per_subscription_scope() -> None:
+    subscription_table = Base.metadata.tables["limit_notification_subscription"]
+    scope_constraint = next(
+        constraint
+        for constraint in subscription_table.constraints
+        if constraint.name == "uq_limit_notification_subscription_scope"
+    )
+
+    assert {column.name for column in scope_constraint.columns} == {
+        "user_id",
+        "scope_type",
+        "scope_value",
+    }
 
 
 def test_fee_history_accepts_comprehensive_operating_rate() -> None:

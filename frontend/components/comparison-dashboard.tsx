@@ -33,6 +33,7 @@ import { ShareClassHelpDialog } from "./share-class-help-dialog";
 import { SyncInfoDialog } from "./sync-info-dialog";
 import { FUND_TAG_META } from "./fund-tag-meta";
 import { InvestmentNotes } from "./investment-notes";
+import { LimitNotificationDialog } from "./limit-notification-dialog";
 import { KnowledgeBase } from "./knowledge-base";
 import { TaggedFundsDialog } from "./tagged-funds-dialog";
 import { AssetManagement } from "./asset-management";
@@ -206,6 +207,7 @@ export function ComparisonDashboard() {
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [syncInfoOpen, setSyncInfoOpen] = useState(false);
+  const [limitNotificationOpen, setLimitNotificationOpen] = useState(false);
   const [shareClassHelpOpen, setShareClassHelpOpen] = useState(false);
   const [tagSavingCodes, setTagSavingCodes] = useState<string[]>([]);
   const [tagError, setTagError] = useState<string | null>(null);
@@ -749,15 +751,25 @@ export function ComparisonDashboard() {
                   </button>
                 ))}
               </nav>
-              <button
-                className="topbar-info-button"
-                type="button"
-                onClick={() => setSyncInfoOpen(true)}
-                aria-label="查看数据同步"
-                title="数据同步"
-              >
-                数据同步
-              </button>
+              <div className="workspace-info-actions">
+                <button
+                  className="topbar-info-button"
+                  type="button"
+                  onClick={() => setLimitNotificationOpen(true)}
+                  aria-label="打开限额提醒"
+                >
+                  限额提醒
+                </button>
+                <button
+                  className="topbar-info-button"
+                  type="button"
+                  onClick={() => setSyncInfoOpen(true)}
+                  aria-label="查看数据同步"
+                  title="数据同步"
+                >
+                  数据同步
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1065,6 +1077,9 @@ export function ComparisonDashboard() {
       )}
       {syncInfoOpen && (
         <SyncInfoDialog dataFreshness={dataFreshness} onClose={closeSyncInfo} />
+      )}
+      {limitNotificationOpen && (
+        <LimitNotificationDialog onClose={() => setLimitNotificationOpen(false)} />
       )}
       {shareClassHelpOpen && (
         <ShareClassHelpDialog onClose={closeShareClassHelp} />

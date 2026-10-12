@@ -32,6 +32,13 @@ from app.models import (
     KnowledgeReorderRequest,
     KnowledgeArticleUpdate,
     NavSeriesResponse,
+    LimitNotificationConfig,
+    LimitNotificationConfigUpdate,
+)
+from app.limit_notifications import (
+    get_limit_notification_config,
+    save_limit_notification_config,
+    send_test_limit_notification,
 )
 from app.repository import FundRepository, get_repository
 from app.sync_jobs import SyncJobBusyError, SyncTaskKey, sync_job_runner
@@ -415,6 +422,46 @@ def start_sync_task(task: SyncTaskKey) -> dict[str, object]:
         return sync_job_runner.start(task)
     except SyncJobBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get(
+    f"{settings.api_prefix}/limit-notifications",
+    response_model=LimitNotificationConfig,
+)
+def limit_notification_config(
+    session: SessionDep,
+    scope: str | None = None,
+) -> LimitNotificationConfig:
+    try:
+        return get_limit_notification_config(session, scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put(
+    f"{settings.api_prefix}/limit-notifications",
+    response_model=LimitNotificationConfig,
+)
+def update_limit_notification_config(
+    payload: LimitNotificationConfigUpdate,
+    session: SessionDep,
+) -> LimitNotificationConfig:
+    try:
+        return save_limit_notification_config(session, payload)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post(f"{settings.api_prefix}/limit-notifications/test")
+def test_limit_notification(payload: LimitNotificationConfigUpdate) -> dict[str, bool]:
+    if not payload.wework_user_id.strip():
+        raise HTTPException(status_code=422, detail="必须填写企业微信 userid")
+    try:
+        send_test_limit_notification(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"测试消息发送失败：{exc}") from exc
+    return {"sent": True}
 
 
 @app.get("/{requested_path:path}", include_in_schema=False)

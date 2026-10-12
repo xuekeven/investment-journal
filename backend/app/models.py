@@ -44,6 +44,26 @@ class FundTagType(str, Enum):
     RECURRING = "recurring"
 
 
+LimitNotificationScope = Literal[
+    "sp-500", "nasdaq-100", "csi-500", "favorite", "holding", "recurring"
+]
+LimitNotificationFundType = Literal["on_exchange", "off_exchange", "all"]
+
+
+class LimitNotificationConfigUpdate(ApiModel):
+    enabled: bool = False
+    scope: LimitNotificationScope = "favorite"
+    fund_type: LimitNotificationFundType = "off_exchange"
+    wework_user_id: str = Field(default="XueKai", max_length=256)
+    wework_app: str = Field(default="main", min_length=1, max_length=64)
+
+
+class LimitNotificationConfig(LimitNotificationConfigUpdate):
+    relay_configured: bool = False
+    last_sent_at: datetime | None = None
+    last_error: str | None = None
+
+
 class HealthResponse(ApiModel):
     status: str
     version: str

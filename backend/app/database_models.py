@@ -228,6 +228,68 @@ class UserFundTag(Base, TimestampMixin):
     )
 
 
+class LimitNotificationSubscription(Base, TimestampMixin):
+    __tablename__ = "limit_notification_subscription"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    scope_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    scope_value: Mapped[str] = mapped_column(String(64), nullable=False)
+    fund_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    notify_limit_decrease: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    notify_limit_increase: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    notify_suspended: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    notify_resumed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    notify_first_seen: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    wework_user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    wework_app: Mapped[str] = mapped_column(String(64), nullable=False, server_default=text("'main'"))
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint("scope_type IN ('index', 'tag')", name="ck_limit_notification_scope_type"),
+        CheckConstraint("fund_type IN ('on_exchange', 'off_exchange', 'all')", name="ck_limit_notification_fund_type"),
+        UniqueConstraint(
+            "user_id", "scope_type", "scope_value",
+            name="uq_limit_notification_subscription_scope",
+        ),
+    )
+
+
+class LimitNotificationOutbox(Base):
+    __tablename__ = "limit_notification_outbox"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    subscription_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("limit_notification_subscription.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    fund_share_class_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("fund_share_class.id", ondelete="CASCADE"), nullable=False
+    )
+    event_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    delivery_key: Mapped[str | None] = mapped_column(String(64))
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    fund_code: Mapped[str] = mapped_column(String(32), nullable=False)
+    fund_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    previous_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    current_state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, server_default=text("'pending'"))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('pending', 'sending', 'sent', 'failed')", name="ck_limit_notification_outbox_status"),
+        Index("ix_limit_notification_outbox_pending", "status", "detected_at"),
+        Index("ix_limit_notification_outbox_delivery", "delivery_key"),
+    )
+
+
 class InvestmentNote(Base, TimestampMixin):
     __tablename__ = "investment_note"
 

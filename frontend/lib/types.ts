@@ -1,6 +1,24 @@
 export type DataStatus = "verified" | "delayed" | "estimated" | "sample" | "unavailable";
 export type TradingVenue = "场内" | "场外";
 export type FundTag = "favorite" | "holding" | "recurring";
+export type LimitNotificationScope = "sp-500" | "nasdaq-100" | "csi-500" | FundTag;
+export type LimitNotificationFundType = "on_exchange" | "off_exchange" | "all";
+
+export interface LimitNotificationConfig {
+  enabled: boolean;
+  scope: LimitNotificationScope;
+  fundType: LimitNotificationFundType;
+  weworkUserId: string;
+  weworkApp: string;
+  relayConfigured: boolean;
+  lastSentAt: string | null;
+  lastError: string | null;
+}
+
+export type LimitNotificationConfigUpdate = Omit<
+  LimitNotificationConfig,
+  "relayConfigured" | "lastSentAt" | "lastError"
+>;
 
 export interface IndexSummary {
   id: string;

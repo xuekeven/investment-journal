@@ -14,6 +14,8 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("DATABASE_URL", "IFC_DATABASE_URL"),
     )
+    wework_relay_url: str = "http://aliserver.tailed5977.ts.net:5001"
+    wework_relay_api_key: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

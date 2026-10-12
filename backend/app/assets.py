@@ -346,9 +346,6 @@ def _snapshot_totals(
 def get_asset_dashboard(session: Session, snapshot_id: int | None = None) -> AssetDashboard:
     active_accounts, active_positions = _accounts_and_positions(session)
     options = _asset_options(session)
-    all_accounts = list(session.scalars(
-        select(AssetAccount).where(AssetAccount.user_id == SINGLE_USER_ID)
-    ))
     all_positions = {
         item.id: item for item in session.scalars(
             select(AssetPosition).where(AssetPosition.user_id == SINGLE_USER_ID)

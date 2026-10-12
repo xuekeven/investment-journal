@@ -15,6 +15,9 @@ import type {
   KnowledgeCategoryOrder,
   KnowledgeArticle,
   KnowledgeArticlePayload,
+  LimitNotificationConfig,
+  LimitNotificationConfigUpdate,
+  LimitNotificationScope,
   TradingVenue,
 } from "./types";
 
@@ -158,6 +161,26 @@ export function getSyncTaskHistory(
 
 export function startSyncTask(task: SyncTaskKey): Promise<SyncTaskSnapshot> {
   return postJson<SyncTaskSnapshot>(`/sync-tasks/${task}`);
+}
+
+export function getLimitNotificationConfig(
+  scope?: LimitNotificationScope,
+  signal?: AbortSignal,
+): Promise<LimitNotificationConfig> {
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return getJson<LimitNotificationConfig>(`/limit-notifications${query}`, signal);
+}
+
+export function updateLimitNotificationConfig(
+  payload: LimitNotificationConfigUpdate,
+): Promise<LimitNotificationConfig> {
+  return putJson<LimitNotificationConfig>("/limit-notifications", payload);
+}
+
+export function testLimitNotification(
+  payload: LimitNotificationConfigUpdate,
+): Promise<{ sent: boolean }> {
+  return sendJson<{ sent: boolean }>("/limit-notifications/test", "POST", payload);
 }
 
 export function getContentOptions(

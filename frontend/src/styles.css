@@ -341,6 +341,68 @@ a { color: inherit; text-decoration: none; }
   display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,.22); border-radius: 22px;
   background: var(--panel); box-shadow: 0 28px 90px rgba(5,18,12,.32);
 }
+.limit-notification-sheet {
+  width: min(760px, 100%); max-height: calc(100vh - 48px); overflow: hidden;
+  display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,.22); border-radius: 22px;
+  background: var(--panel); box-shadow: 0 28px 90px rgba(5,18,12,.32);
+}
+.limit-notification-content { padding: 22px 24px; overflow-y: auto; }
+.limit-notification-state { min-height: 280px; display: grid; place-content: center; color: var(--muted); font-size: 14px; }
+.switch-component {
+  width: 44px; height: 24px; padding: 2px; flex: none; display: inline-flex; align-items: center;
+  border: 1px solid #cbd5d0; border-radius: 999px; background: #e7ece9; cursor: pointer;
+  transition: border-color .18s, background .18s;
+}
+.switch-component span {
+  width: 18px; height: 18px; border-radius: 50%; background: white;
+  box-shadow: 0 1px 4px rgba(18,38,29,.2); transform: translateX(0); transition: transform .18s;
+}
+.switch-component.checked { border-color: var(--green); background: var(--green); }
+.switch-component.checked span { transform: translateX(18px); }
+.switch-component:focus-visible { outline: 2px solid #9bc9a9; outline-offset: 2px; }
+.switch-component:disabled { opacity: .55; cursor: not-allowed; }
+.limit-notification-form { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.limit-notification-row { min-width: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 20px; }
+.limit-notification-label { color: #52615a; font-size: 12px; font-weight: 650; }
+.limit-notification-control { min-width: 0; }
+.limit-switch-control { display: flex; align-items: center; gap: 14px; }
+.limit-switch-control small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.limit-notification-dependent { min-width: 0; margin: 0; padding: 16px 0 0; display: flex; flex-direction: column; gap: 16px; border: 0; border-top: 1px solid var(--line); }
+.limit-notification-dependent.disabled { opacity: .45; }
+.limit-notification-dependent.disabled .limit-notification-note { background: #f1f3f2; }
+.limit-notification-dependent:disabled .multi-filter-trigger,
+.limit-notification-dependent:disabled input,
+.limit-notification-dependent:disabled button { cursor: not-allowed; }
+.limit-notification-control input {
+  width: 100%; height: 40px; padding: 0 11px; border: 1px solid #d4ddd8; border-radius: 9px;
+  color: var(--ink); background: white; font: inherit; font-size: 13px; outline: 0;
+}
+.limit-notification-control input:focus { border-color: #83b89d; box-shadow: 0 0 0 2px rgba(17,121,77,.08); }
+.limit-custom-select, .limit-custom-select .multi-filter-trigger { width: 100%; }
+.limit-custom-select .multi-filter-trigger { height: 40px; justify-content: flex-start; border-radius: 9px; }
+.limit-custom-select .multi-filter-trigger strong { color: var(--ink); font-size: 13px; font-weight: 500; }
+.limit-custom-select .multi-filter-menu { z-index: 25; }
+.limit-custom-select .multi-filter-menu button { min-height: 38px; font-size: 13px; }
+.limit-custom-select .multi-filter-menu button > span { overflow: hidden; text-overflow: ellipsis; }
+.limit-option-badge {
+  padding: 2px 7px; flex: none; border-radius: 999px;
+  color: #23638d; background: #e5f2fa; font-size: 10px; font-weight: 700;
+}
+.limit-notification-note { padding: 12px 14px; border-radius: 10px; background: #f5f8f6; }
+.limit-notification-note p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.limit-notification-note p + p { margin-top: 3px; }
+.limit-notification-note .warning { color: #956915; }
+.limit-notification-note .error, .limit-form-message.error { color: #b83c32; }
+.limit-notification-aligned { margin-left: 170px; }
+.limit-test-button { align-self: flex-start; padding: 9px 13px; border: 1px solid #b8d6c6; border-radius: 9px; color: var(--green-dark); background: #f4fbf7; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.limit-test-button:disabled { opacity: .5; cursor: not-allowed; }
+.limit-test-action { display: flex; align-items: center; gap: 12px; }
+.limit-test-message { color: var(--green); font-size: 12px; }
+.limit-form-message { margin: 14px 0 0; font-size: 12px; }
+.limit-form-message.success { color: var(--green); }
+.limit-notification-footer { padding: 16px 24px 20px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
+.limit-notification-footer button { padding: 10px 18px; border-radius: 9px; font-size: 14px; font-weight: 650; cursor: pointer; }
+.limit-notification-footer button:disabled { opacity: .55; cursor: wait; }
 .tagged-funds-sheet {
   width: min(960px, 100%); max-height: calc(100vh - 48px); overflow: hidden;
   display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,.22); border-radius: 22px;
@@ -600,6 +662,10 @@ a { color: inherit; text-decoration: none; }
   .comparison-overlay { padding: 0; place-items: stretch; }
   .comparison-sheet { width: 100%; max-height: 100vh; border: 0; border-radius: 0; }
   .sync-info-sheet { width: 100%; max-height: 100vh; border: 0; border-radius: 0; }
+  .limit-notification-sheet { width: 100%; max-height: 100vh; border: 0; border-radius: 0; }
+  .limit-notification-row { grid-template-columns: 1fr; gap: 7px; }
+  .limit-switch-control { align-items: flex-start; flex-direction: column; }
+  .limit-notification-aligned { margin-left: 0; }
   .sync-history-overlay { padding: 14px; }
   .sync-history-sheet { max-height: calc(100vh - 28px); }
   .sync-history-content { padding: 16px 14px 20px; }
@@ -841,6 +907,7 @@ a { color: inherit; text-decoration: none; }
 
 /* Fund workspace actions */
 .workspace-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 16px; }
+.workspace-info-actions { display: flex; align-items: center; gap: 10px; }
 
 @media (max-width: 720px) {
   .workspace-head { flex-direction: column; }

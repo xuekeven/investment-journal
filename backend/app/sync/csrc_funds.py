@@ -40,6 +40,10 @@ from app.sync.sse_details import (
     sync_return_metrics,
 )
 from app.sync.sse_funds import ensure_index_master_data
+from app.limit_notifications import (
+    dispatch_pending_limit_notifications,
+    enqueue_limit_change,
+)
 
 
 CSRC_INDEX_PAGE_URL = "https://www.csrc.gov.cn/csrc/c101900/c1029655/content.shtml"
@@ -1324,6 +1328,7 @@ def sync_subscription_state(
         if richer_record is not None:
             effective_limit_amount = richer_record.limit_amount
     active_records = [record for record in records if record.effective_to is None]
+    previous_record = active_records[0] if active_records else None
     matching_records = [
         record
         for record in records
@@ -1364,11 +1369,32 @@ def sync_subscription_state(
             # make its effective interval empty so it cannot remain current.
             record.effective_to = record.effective_from
     if existing is not None:
+        if previous_record is not existing:
+            enqueue_limit_change(
+                session,
+                share_id=share_id,
+                previous_record=previous_record,
+                status=state.status,
+                amount=effective_limit_amount,
+                currency=state.currency,
+                effective_from=effective_from,
+                detected_at=collected_at,
+            )
         existing.source_url = state.source_url
         existing.source_time = effective_from
         existing.collected_at = collected_at
         existing.quality_status = state.quality_status
         return
+    enqueue_limit_change(
+        session,
+        share_id=share_id,
+        previous_record=previous_record,
+        status=state.status,
+        amount=effective_limit_amount,
+        currency=state.currency,
+        effective_from=effective_from,
+        detected_at=collected_at,
+    )
     session.add(
         SalesLimitHistory(
             fund_share_class_id=share_id,
@@ -2679,6 +2705,11 @@ def run_details_sync(
                 session.rollback()
             else:
                 session.commit()
+    if not dry_run:
+        try:
+            dispatch_pending_limit_notifications()
+        except Exception as exc:
+            warnings.append(f"limit notification dispatch failed: {exc}")
     return SyncStats(
         products,
         shares,
