@@ -1638,6 +1638,7 @@ class PostgresFundRepository(FundRepository):
         same_day_quote = aliased(MarketQuote)
         latest_scale = aliased(FundScale)
         latest_subscription = aliased(SalesLimitHistory)
+        next_subscription = aliased(SalesLimitHistory)
         source = aliased(SourceDocument)
 
         latest_nav_id = self._latest_id_subquery(
@@ -1696,6 +1697,20 @@ class PostgresFundRepository(FundRepository):
             .limit(1)
             .correlate(FundShareClass)
         )
+        next_subscription_id = (
+            select(SalesLimitHistory.id)
+            .where(
+                SalesLimitHistory.fund_share_class_id == FundShareClass.id,
+                SalesLimitHistory.business_type == "申购",
+                SalesLimitHistory.effective_from > func.now(),
+            )
+            .order_by(
+                SalesLimitHistory.effective_from,
+                SalesLimitHistory.id.desc(),
+            )
+            .limit(1)
+            .correlate(FundShareClass)
+        )
 
         return (
             select(
@@ -1707,6 +1722,10 @@ class PostgresFundRepository(FundRepository):
                 latest_subscription.limit_status.label("subscription_status"),
                 latest_subscription.limit_amount.label("subscription_limit_amount"),
                 latest_subscription.currency.label("subscription_limit_currency"),
+                next_subscription.limit_status.label("next_subscription_status"),
+                next_subscription.limit_amount.label("next_subscription_limit_amount"),
+                next_subscription.currency.label("next_subscription_limit_currency"),
+                next_subscription.effective_from.label("next_subscription_effective_from"),
                 FundShareClass.quality_status.label("share_quality"),
                 FundShareClass.source_url.label("share_source_url"),
                 FundShareClass.source_time.label("share_source_time"),
@@ -1751,6 +1770,10 @@ class PostgresFundRepository(FundRepository):
             .outerjoin(
                 latest_subscription,
                 latest_subscription.id == latest_subscription_id.scalar_subquery(),
+            )
+            .outerjoin(
+                next_subscription,
+                next_subscription.id == next_subscription_id.scalar_subquery(),
             )
             .outerjoin(
                 source,
@@ -1926,6 +1949,14 @@ class PostgresFundRepository(FundRepository):
                 else None
             ),
             subscription_limit_currency=row["subscription_limit_currency"],
+            next_subscription_status=row["next_subscription_status"],
+            next_subscription_limit_amount=(
+                float(row["next_subscription_limit_amount"])
+                if row["next_subscription_limit_amount"] is not None
+                else None
+            ),
+            next_subscription_limit_currency=row["next_subscription_limit_currency"],
+            next_subscription_effective_from=row["next_subscription_effective_from"],
             exchange=row["exchange"],
             management_fee=management,
             custody_fee=custody,

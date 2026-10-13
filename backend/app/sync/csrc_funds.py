@@ -639,7 +639,7 @@ def _announcement_date(compact: str) -> date:
         year, month, day = cutoff_match.groups()
         return date(int(year), int(month), int(day))
     effective_match = re.search(
-        rf"(?:暂停(?:[（(]?大额[）)]?)?申购起始日|"
+        rf"(?:(?:暂停|调整)(?:[（(]?大额[）)]?)?申购起始日|"
         rf"恢复(?:[（(]?大额[）)]?)?申购(?:起始)?日|自)"
         rf".{{0,20}}?{date_pattern}",
         compact,
@@ -866,6 +866,20 @@ def _announcement_limits(
             if share.currency == currency and share.share_class in classes:
                 limits[share.code] = amount
 
+    for match in re.finditer(
+        r"本基金(?P<label>(?:[A-Z]类(?:人民币|美元(?:现汇|现钞)?)?份额[、，及和]?)+)"
+        r".{0,180}?业务限额为"
+        r"(?P<amount>\d[\d,]*(?:\.\d+)?)"
+        rf"(?P<unit>{_LIMIT_UNIT_PATTERN})",
+        compact,
+    ):
+        classes = set(re.findall(r"([A-Z])类", match.group("label")))
+        currency = _limit_currency(match.group("unit"))
+        amount = _limit_amount(match.group("amount"), match.group("unit"))
+        for share in shares.values():
+            if share.currency == currency and share.share_class in classes:
+                limits[share.code] = amount
+
     scoped_limit = re.search(
         r"(?:该基金份额的限制金额|调整后限额)(?:为)?"
         r"(?P<amount>\d[\d,]*(?:\.\d+)?)"
@@ -941,8 +955,31 @@ def _announcement_limits(
             and (not share_classes or share.share_class in share_classes)
         ]
         for share in candidates:
-            previous = limits.get(share.code)
-            limits[share.code] = amount if previous is None else min(previous, amount)
+            # Explicit table/class mappings above are more precise than this
+            # fallback prose matcher. In notices that repeat "本基金该类份额"
+            # after an A/C rule, treating the fallback as a global minimum
+            # incorrectly lowers a separately announced F-class limit.
+            limits.setdefault(share.code, amount)
+
+    # An announcement can give a higher direct-sales limit in its table and
+    # a lower distributor limit in the notes. The single displayed limit must
+    # be usable across channels, so retain the most restrictive explicit
+    # channel amount for the named share classes.
+    for match in re.finditer(
+        r"通过(?:本公司)?(?:直销渠道|各?代销机构)"
+        r".{0,100}?本基金(?P<label>(?:[A-Z]类[或、，及和]?)+)份额"
+        r".{0,100}?累计金额(?:应)?不超过"
+        r"(?P<amount>\d[\d,]*(?:\.\d+)?)"
+        rf"(?P<unit>{_LIMIT_UNIT_PATTERN})",
+        compact,
+    ):
+        classes = set(re.findall(r"([A-Z])类", match.group("label")))
+        currency = _limit_currency(match.group("unit"))
+        amount = _limit_amount(match.group("amount"), match.group("unit"))
+        for share in shares.values():
+            if share.currency == currency and share.share_class in classes:
+                previous = limits.get(share.code)
+                limits[share.code] = min(previous, amount) if previous is not None else amount
     return limits
 
 
@@ -1003,13 +1040,19 @@ def parse_subscription_announcement(
     scoped_shares = {code: shares[code] for code in codes}
     limits = (
         _announcement_limits(text, compact, scoped_shares)
-        if status == "limited"
+        if status in {"limited", "open"}
         else {}
     )
+    # A restoration notice may reopen subscriptions while introducing a new
+    # finite limit. It is therefore still a limited state, not unrestricted.
+    if status == "open" and limits:
+        status = "limited"
     if status == "limited" and limits:
         codes = [code for code in codes if code in limits]
     effective_date = _announcement_date(compact)
-    if "基金管理人直销电子交易平台" in compact:
+    if "代销机构" in compact and "直销" in compact:
+        channel = "全部渠道"
+    elif "基金管理人直销电子交易平台" in compact:
         channel = "基金管理人直销电子交易平台"
     elif "基金管理人直销机构" in compact or "直销机构" in normalized_title:
         channel = "基金管理人直销机构"
@@ -1258,23 +1301,38 @@ def resolve_subscription_states(
     shares: dict[str, SummaryShare],
     snapshot_date: date,
     detail_url: str,
-) -> tuple[dict[str, SubscriptionState], list[str]]:
-    states: dict[str, SubscriptionState] = {}
+) -> tuple[list[SubscriptionState], list[str]]:
+    states_by_code: dict[str, dict[date, SubscriptionState]] = {}
     warnings: list[str] = []
     for document, text in announcements:
         try:
             for state in parse_subscription_announcement(
                 document.title, text, shares, document.url
             ):
-                if state.effective_date > snapshot_date:
-                    continue
-                current = states.get(state.code)
-                if current is None or state.effective_date > current.effective_date:
-                    states[state.code] = state
+                states_by_code.setdefault(state.code, {}).setdefault(
+                    state.effective_date,
+                    state,
+                )
         except (httpx.HTTPError, RuntimeError, ValueError) as exc:
             warnings.append(f"{document.title}: {exc}")
 
-    return states, warnings
+    resolved: list[SubscriptionState] = []
+    for code_states in states_by_code.values():
+        current_states = [
+            state for state in code_states.values()
+            if state.effective_date <= snapshot_date
+        ]
+        if current_states:
+            resolved.append(max(current_states, key=lambda state: state.effective_date))
+        resolved.extend(sorted(
+            (
+                state for state in code_states.values()
+                if state.effective_date > snapshot_date
+            ),
+            key=lambda state: state.effective_date,
+        ))
+    resolved.sort(key=lambda state: (state.effective_date, state.code))
+    return resolved, warnings
 
 
 def subscription_as_of_date(collected_at: datetime) -> date:
@@ -1293,6 +1351,7 @@ def sync_subscription_state(
     effective_from = datetime.combine(
         state.effective_date, time.min, tzinfo=ASIA_SHANGHAI
     )
+    observed_at = collected_at.astimezone(ASIA_SHANGHAI)
     records = list(
         session.scalars(
             select(SalesLimitHistory)
@@ -1327,8 +1386,13 @@ def sync_subscription_state(
         )
         if richer_record is not None:
             effective_limit_amount = richer_record.limit_amount
-    active_records = [record for record in records if record.effective_to is None]
-    previous_record = active_records[0] if active_records else None
+
+    def active_at(record: SalesLimitHistory, moment: datetime) -> bool:
+        return (
+            (record.effective_from is None or record.effective_from <= moment)
+            and (record.effective_to is None or record.effective_to > moment)
+        )
+
     matching_records = [
         record
         for record in records
@@ -1338,13 +1402,85 @@ def sync_subscription_state(
         and record.limit_amount == effective_limit_amount
         and record.currency == state.currency
     ]
+
+    if effective_from > observed_at:
+        previous_record = next(
+            (
+                record for record in records
+                if (record.effective_from is None or record.effective_from < effective_from)
+                and (record.effective_to is None or record.effective_to >= effective_from)
+            ),
+            None,
+        )
+        existing = matching_records[0] if matching_records else None
+        if previous_record is not None and previous_record is not existing:
+            if previous_record.effective_to is None or previous_record.effective_to > effective_from:
+                previous_record.effective_to = effective_from
+
+        # A published future change remains worth notifying on every sync
+        # until it becomes the current state. The outbox event key includes
+        # this run's detection timestamp when repeat=True.
+        enqueue_limit_change(
+            session,
+            share_id=share_id,
+            previous_record=previous_record,
+            status=state.status,
+            amount=effective_limit_amount,
+            currency=state.currency,
+            source_url=state.source_url,
+            effective_from=effective_from,
+            detected_at=collected_at,
+            repeat=True,
+        )
+        if existing is not None:
+            later_boundaries = [
+                record.effective_from for record in records
+                if record is not existing
+                and record.effective_from is not None
+                and record.effective_from > effective_from
+            ]
+            existing.effective_to = min(later_boundaries, default=None)
+            existing.source_url = state.source_url
+            existing.source_time = effective_from
+            existing.collected_at = collected_at
+            existing.quality_status = state.quality_status
+            return
+        session.add(
+            SalesLimitHistory(
+                fund_share_class_id=share_id,
+                channel=state.channel,
+                investor_type="全部投资者",
+                business_type="申购",
+                limit_amount=effective_limit_amount,
+                currency=state.currency,
+                limit_status=state.status,
+                source_url=state.source_url,
+                source_time=effective_from,
+                effective_from=effective_from,
+                collected_at=collected_at,
+                quality_status=state.quality_status,
+            )
+        )
+        return
+
+    active_records = [record for record in records if active_at(record, observed_at)]
+    previous_record = active_records[0] if active_records else None
     existing = next(
-        (record for record in matching_records if record.effective_to is None),
+        (record for record in matching_records if active_at(record, observed_at)),
         None,
     )
     if existing is None and authoritative and matching_records:
         existing = matching_records[0]
-        existing.effective_to = None
+        later_boundaries = [
+            record.effective_from for record in records
+            if record is not existing
+            and record.effective_from is not None
+            # Only preserve genuinely future state boundaries. Later rows
+            # that are already effective at collection time may be stale
+            # assignments which the authoritative pass invalidates below.
+            and record.effective_from > observed_at
+        ]
+        existing.effective_to = min(later_boundaries, default=None)
 
     newer_active_exists = any(
         record.effective_from is not None
@@ -1362,7 +1498,7 @@ def sync_subscription_state(
                 effective_from,
                 record.effective_from or effective_from,
             )
-        elif authoritative:
+        elif authoritative and record.effective_from <= observed_at:
             # The complete official announcement timeline no longer assigns
             # this later record to the share (for example, a RMB-only notice
             # previously applied to a USD share). Keep the row for audit, but
@@ -1377,6 +1513,7 @@ def sync_subscription_state(
                 status=state.status,
                 amount=effective_limit_amount,
                 currency=state.currency,
+                source_url=state.source_url,
                 effective_from=effective_from,
                 detected_at=collected_at,
             )
@@ -1392,6 +1529,7 @@ def sync_subscription_state(
         status=state.status,
         amount=effective_limit_amount,
         currency=state.currency,
+        source_url=state.source_url,
         effective_from=effective_from,
         detected_at=collected_at,
     )
@@ -2673,8 +2811,8 @@ def run_details_sync(
                             for warning in state_warnings
                         )
                         synced_subscription_states = 0
-                        for code, state in states.items():
-                            share_id = share_ids.get(code)
+                        for state in states:
+                            share_id = share_ids.get(state.code)
                             if share_id is None:
                                 continue
                             sync_subscription_state(

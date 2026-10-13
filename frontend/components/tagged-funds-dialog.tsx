@@ -10,6 +10,7 @@ import {
 import type { FundComparisonRow, FundTag } from "@/lib/types";
 import { FUND_TAG_META } from "./fund-tag-meta";
 import { CloseIcon } from "./icons";
+import { SubscriptionTags } from "./subscription-tags";
 
 interface TaggedFundsDialogProps {
   tag: FundTag;
@@ -26,21 +27,7 @@ interface TaggedFundsDialogProps {
 }
 
 function SubscriptionLimit({ fund }: { fund: FundComparisonRow }) {
-  if (fund.tradingVenue !== "场外" || fund.subscriptionStatus === null) {
-    return <span className="tagged-limit-muted">—</span>;
-  }
-  if (fund.subscriptionStatus === "suspended") {
-    return <span className="subscription-tag suspended">暂停申购</span>;
-  }
-  if (fund.subscriptionStatus === "open") {
-    return <span className="subscription-tag open">开放申购</span>;
-  }
-  const amount = fund.subscriptionLimitAmount;
-  const unit = fund.subscriptionLimitCurrency === "美元" ? "美元" : "人民币";
-  const label = amount === null
-    ? "限额申购"
-    : `限额${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(amount)}${unit}`;
-  return <span className="subscription-tag limited">{label}</span>;
+  return <SubscriptionTags fund={fund} showEmpty />;
 }
 
 const amountFormatter = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 6 });

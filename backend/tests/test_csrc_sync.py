@@ -8,6 +8,7 @@ from urllib.parse import unquote
 
 from openpyxl import Workbook
 
+from app.sync import csrc_funds
 from app.sync.csrc_funds import (
     ScaleRecord,
     classify_product,
@@ -1090,8 +1091,107 @@ def test_resolves_subscription_state_by_effective_date_not_document_order() -> N
     )
 
     assert warnings == []
-    assert states["018064"].status == "suspended"
-    assert states["018064"].effective_date == date(2026, 8, 10)
+    assert [(state.status, state.effective_date) for state in states] == [
+        ("suspended", date(2026, 8, 10)),
+    ]
+
+
+def test_resolves_current_state_and_announced_future_state() -> None:
+    shares = {
+        "270042": SummaryShare(
+            "270042", "广发纳指100ETF联接人民币A", "A", "人民币", None
+        )
+    }
+    announcements = [
+        (
+            DisclosureDocument("暂停申购公告", "https://example.test/pause.pdf"),
+            "自2026年9月21日起暂停本基金A类人民币份额申购业务",
+        ),
+        (
+            DisclosureDocument(
+                "恢复申购并调整限额公告",
+                "https://example.test/resume.pdf",
+            ),
+            "自2026年10月13日起恢复本基金A类人民币份额申购业务。"
+            "本基金A类人民币份额申购业务限额为10元。",
+        ),
+    ]
+
+    states, warnings = resolve_subscription_states(
+        announcements, shares, date(2026, 10, 12), "https://example.test/detail"
+    )
+
+    assert warnings == []
+    assert [
+        (state.status, state.limit_amount, state.effective_date) for state in states
+    ] == [
+        ("suspended", None, date(2026, 9, 21)),
+        ("limited", Decimal("10"), date(2026, 10, 13)),
+    ]
+
+
+def test_future_subscription_change_is_enqueued_on_every_sync(monkeypatch) -> None:
+    future_from = datetime(2026, 10, 13, tzinfo=ZoneInfo("Asia/Shanghai"))
+    current = SimpleNamespace(
+        id=1,
+        channel="全部渠道",
+        effective_from=datetime(2026, 9, 21, tzinfo=ZoneInfo("Asia/Shanghai")),
+        effective_to=future_from,
+        limit_status="suspended",
+        limit_amount=None,
+        currency="人民币",
+        source_url="https://example.test/pause.pdf",
+        source_time=None,
+        collected_at=datetime(2026, 10, 11, tzinfo=UTC),
+        quality_status="verified",
+    )
+    future = SimpleNamespace(
+        id=2,
+        channel="全部渠道",
+        effective_from=future_from,
+        effective_to=None,
+        limit_status="limited",
+        limit_amount=Decimal("10"),
+        currency="人民币",
+        source_url="https://example.test/resume.pdf",
+        source_time=future_from,
+        collected_at=datetime(2026, 10, 11, tzinfo=UTC),
+        quality_status="verified",
+    )
+
+    class StubSession:
+        def scalars(self, _statement: object) -> list[SimpleNamespace]:
+            return [future, current]
+
+        def add(self, _record: object) -> None:
+            raise AssertionError("existing future state should be updated")
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        csrc_funds,
+        "enqueue_limit_change",
+        lambda _session, **kwargs: calls.append(kwargs),
+    )
+    state = SubscriptionState(
+        code="270042",
+        status="limited",
+        limit_amount=Decimal("10"),
+        currency="人民币",
+        effective_date=date(2026, 10, 13),
+        source_url="https://example.test/resume.pdf",
+    )
+
+    sync_subscription_state(
+        StubSession(), 123, state, datetime(2026, 10, 12, 2, tzinfo=UTC)
+    )
+    sync_subscription_state(
+        StubSession(), 123, state, datetime(2026, 10, 12, 3, tzinfo=UTC)
+    )
+
+    assert len(calls) == 2
+    assert all(call["previous_record"] is current for call in calls)
+    assert all(call["repeat"] is True for call in calls)
+    assert calls[0]["detected_at"] != calls[1]["detected_at"]
 
 
 def test_parses_combined_share_limit_in_yuan_and_ignores_dash_flag() -> None:
@@ -1164,8 +1264,8 @@ def test_parses_amount_limit_announcements_by_share_class() -> None:
 
     assert warnings == []
     assert {
-        code: (state.status, state.limit_amount, state.effective_date)
-        for code, state in states.items()
+        state.code: (state.status, state.limit_amount, state.effective_date)
+        for state in states
     } == {
         "016452": ("limited", Decimal("10"), date(2026, 7, 9)),
         "016453": ("limited", Decimal("10"), date(2026, 7, 9)),
@@ -1199,6 +1299,72 @@ def test_restore_subscription_with_large_limit_stays_limited() -> None:
         (state.code, state.status, state.limit_amount, state.effective_date)
         for state in states
     ] == [("160213", "limited", Decimal("50.00"), date(2026, 8, 19))]
+
+
+def test_restore_subscription_with_new_limits_stays_limited_by_share_class() -> None:
+    shares = {
+        share.code: share
+        for share in (
+            SummaryShare("270042", "广发纳指100ETF联接人民币A", "A", "人民币", None),
+            SummaryShare("006479", "广发纳指100ETF联接人民币C", "C", "人民币", None),
+            SummaryShare("021778", "广发纳指100ETF联接人民币F", "F", "人民币", None),
+        )
+    }
+
+    states = parse_subscription_announcement(
+        "广发纳指100ETF联接（QDII）人民币份额恢复申购业务的公告",
+        """公告送出日期：2026年10月13日
+恢复申购日2026年10月13日
+下属分级基金的交易代码270042006479021778
+该分级基金是否恢复申购是是是
+本基金A类人民币份额、C类人民币份额调整投资者单日单个基金账户
+申购（含定期定额和不定额投资）及转换转入本基金该类份额的业务限额为10.00元。
+即如投资者申购本基金该类份额的申请金额大于10.00元，超过部分有权确认失败。
+本基金F类人民币份额调整投资者单日单个基金账户申购（含定期定额和不定额投资）
+及转换转入本基金该类份额的业务限额为100.00元，申请确认规则同上。
+""",
+        shares,
+        "https://example.test/1592653.pdf",
+    )
+
+    assert [(state.code, state.status, state.limit_amount) for state in states] == [
+        ("270042", "limited", Decimal("10.00")),
+        ("006479", "limited", Decimal("10.00")),
+        ("021778", "limited", Decimal("100.00")),
+    ]
+
+
+def test_channel_limits_use_distributor_amount_and_actual_start_date() -> None:
+    shares = {
+        share.code: share
+        for share in (
+            SummaryShare("000834", "大成纳斯达克100ETF联接A", "A", "人民币", None),
+            SummaryShare("008971", "大成纳斯达克100ETF联接C", "C", "人民币", None),
+        )
+    }
+    states = parse_subscription_announcement(
+        "大成纳斯达克100ETF联接（QDII）调整大额申购公告",
+        """公告送出日期：2026年06月03日
+调整大额申购起始日 2026年6月4日
+限制申购金额（单位：人民币元） 100.00
+下属基金份额的交易代码 000834 008971
+下属基金份额的限制金额（单位：人民币元） 100.00 100.00
+2026年06月04日起，投资人通过本公司直销渠道申购本基金A类或C类份额
+单日单个基金账户的申购及定期定额投资累计金额应不超过100元人民币；
+2026年06月04日起，投资人通过各代销机构申购本基金A类或C类份额
+单日单个基金账户的申购及定期定额投资累计金额应不超过10元人民币。
+""",
+        shares,
+        "https://example.test/notice.pdf",
+    )
+
+    assert [
+        (state.code, state.limit_amount, state.effective_date, state.channel)
+        for state in states
+    ] == [
+        ("000834", Decimal("10"), date(2026, 6, 4), "全部渠道"),
+        ("008971", Decimal("10"), date(2026, 6, 4), "全部渠道"),
+    ]
 
 
 def test_subscription_documents_include_amount_limit_titles() -> None:
@@ -1244,7 +1410,7 @@ def test_unknown_subscription_state_is_not_assumed_open() -> None:
         "https://example.test/detail",
     )
 
-    assert states == {}
+    assert states == []
     assert warnings == []
 
 

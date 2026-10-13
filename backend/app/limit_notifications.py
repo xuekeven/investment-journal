@@ -198,9 +198,15 @@ def enqueue_limit_change(
     status: str,
     amount: Decimal | None,
     currency: str,
+    source_url: str,
     effective_from: datetime,
     detected_at: datetime,
+    repeat: bool = False,
 ) -> None:
+    # A newly parsed amount from the same announcement corrects our stored
+    # interpretation; it is not a new fund-company limit change.
+    if previous_record is not None and previous_record.source_url == source_url:
+        return
     # Parser unit tests use a deliberately minimal session double. Notification
     # persistence is an integration concern and only runs with a real session.
     if not hasattr(session, "scalar"):
@@ -223,7 +229,12 @@ def enqueue_limit_change(
         if fund is None:
             continue
         share, _ = fund
-        raw_key = f"{subscription.id}|{share_id}|{event_type}|{previous}|{current}|{effective_from.isoformat()}"
+        raw_key = (
+            f"{subscription.id}|{share_id}|{event_type}|{previous}|{current}|"
+            f"{effective_from.isoformat()}"
+        )
+        if repeat:
+            raw_key += f"|{detected_at.isoformat()}"
         event_key = sha256(raw_key.encode("utf-8")).hexdigest()
         if session.scalar(select(LimitNotificationOutbox.id).where(LimitNotificationOutbox.event_key == event_key)):
             continue

@@ -7,6 +7,7 @@ import type { FundSortKey, SortDirection } from "@/lib/fund-list";
 import type { FundComparisonRow, FundTag } from "@/lib/types";
 import { formatFundTagLabel } from "@/lib/fund-tag-values";
 import { CloseIcon } from "./icons";
+import { SubscriptionTags } from "./subscription-tags";
 
 interface FundListProps {
   funds: FundComparisonRow[];
@@ -51,22 +52,6 @@ function getReturn(fund: FundComparisonRow, period: string) {
 
 function ReturnValue({ value }: { value: number | null }) {
   return <span className={value === null ? "muted" : value >= 0 ? "positive" : "negative"}>{formatPercent(value)}</span>;
-}
-
-function SubscriptionTag({ fund }: { fund: FundComparisonRow }) {
-  if (fund.tradingVenue !== "场外" || fund.subscriptionStatus === null) return null;
-  if (fund.subscriptionStatus === "suspended") {
-    return <span className="subscription-tag suspended">暂停申购</span>;
-  }
-  if (fund.subscriptionStatus === "limited") {
-    const amount = fund.subscriptionLimitAmount;
-    const unit = fund.subscriptionLimitCurrency === "美元" ? "美元" : "人民币";
-    const label = amount === null
-      ? "限额申购"
-      : `限额${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(amount)}${unit}`;
-    return <span className="subscription-tag limited">{label}</span>;
-  }
-  return <span className="subscription-tag open">开放申购</span>;
 }
 
 const USER_TAGS: Array<{ value: FundTag; label: string }> = [
@@ -447,7 +432,7 @@ export function FundTable({
                       <div className="off-exchange-price-values">
                         <strong>{formatNumber(fund.nav)}</strong>
                         <small className="price-date">{formatDataDate(fund.navDate)}</small>
-                        <SubscriptionTag fund={fund} />
+                        <SubscriptionTags fund={fund} />
                       </div>
                     </div>
                   )}
@@ -564,7 +549,7 @@ export function FundCards({
                 <span>最新净值</span>
                 <div className="card-nav-value">
                   <strong>{formatNumber(fund.nav)}</strong>
-                  <SubscriptionTag fund={fund} />
+                  <SubscriptionTags fund={fund} />
                 </div>
               </div>
               {fund.closePrice !== null && <div><span>收盘价</span><strong>{formatNumber(fund.closePrice, 3)}</strong></div>}

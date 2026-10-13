@@ -56,6 +56,10 @@ export interface FundComparisonRow {
   subscriptionStatus: "open" | "limited" | "suspended" | null;
   subscriptionLimitAmount: number | null;
   subscriptionLimitCurrency: string | null;
+  nextSubscriptionStatus: "open" | "limited" | "suspended" | null;
+  nextSubscriptionLimitAmount: number | null;
+  nextSubscriptionLimitCurrency: string | null;
+  nextSubscriptionEffectiveFrom: string | null;
   exchange: string | null;
   managementFee: number | null;
   custodyFee: number | null;

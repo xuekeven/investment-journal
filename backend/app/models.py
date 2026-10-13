@@ -107,6 +107,10 @@ class FundComparisonRow(ApiModel):
     subscription_status: str | None = None
     subscription_limit_amount: float | None = None
     subscription_limit_currency: str | None = None
+    next_subscription_status: str | None = None
+    next_subscription_limit_amount: float | None = None
+    next_subscription_limit_currency: str | None = None
+    next_subscription_effective_from: datetime | None = None
     exchange: str | None = None
     management_fee: float | None = None
     custody_fee: float | None = None
