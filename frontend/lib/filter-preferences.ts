@@ -64,7 +64,9 @@ export function readFilterPreferences(): FilterPreferences {
       shareClasses: venue === "场外" ? stringArray(value.shareClasses).slice(0, 1) : [],
       currencies: venue === "场外" ? stringArray(value.currencies).slice(0, 1) : [],
       subscriptionStatuses: venue === "场外"
-        ? stringArray(value.subscriptionStatuses).filter((item) =>
+        ? stringArray(value.subscriptionStatuses).map((item) =>
+            item === "限额" ? "开放" : item
+          ).filter((item) =>
             SUBSCRIPTION_STATUS_OPTIONS.includes(item)
           ).slice(0, 1)
         : [],

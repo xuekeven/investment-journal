@@ -119,17 +119,23 @@ test("filters off-exchange funds by subscription status", () => {
     }),
   ];
 
+  const filters = {
+    venue: "场外" as const,
+    exchanges: [],
+    shareClasses: [],
+    currencies: [],
+    subscriptionStatuses: ["开放"],
+    taggedOnly: false,
+    query: "",
+  };
+
+  assert.deepEqual(filterFundRows(rows, filters).map((item) => item.code), [
+    "000001", "000003",
+  ]);
   assert.deepEqual(
-    filterFundRows(rows, {
-      venue: "场外",
-      exchanges: [],
-      shareClasses: [],
-      currencies: [],
-      subscriptionStatuses: ["暂停", "限额"],
-      taggedOnly: false,
-      query: "",
-    }).map((item) => item.code),
-    ["000002", "000003"],
+    filterFundRows(rows, { ...filters, subscriptionStatuses: ["暂停"] })
+      .map((item) => item.code),
+    ["000002"],
   );
 });
 

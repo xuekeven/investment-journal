@@ -255,6 +255,8 @@ def enqueue_limit_change(
 
 
 def _format_amount(state: dict[str, Any] | None) -> str:
+    if state is not None and state.get("status") == "suspended":
+        return f"0 {state.get('currency') or '人民币'}"
     if state is None or state.get("amount") is None:
         return "无固定限额"
     amount = Decimal(state["amount"])

@@ -15,12 +15,11 @@ export type VenueFilter = TradingVenue;
 
 export const VENUES: VenueFilter[] = ["场内", "场外"];
 export const EXCHANGES = ["上交所", "深交所"];
-export const SUBSCRIPTION_STATUS_OPTIONS = ["开放", "暂停", "限额"];
+export const SUBSCRIPTION_STATUS_OPTIONS = ["开放", "暂停"];
 
-const SUBSCRIPTION_STATUS_BY_LABEL: Record<string, FundComparisonRow["subscriptionStatus"]> = {
-  开放: "open",
-  暂停: "suspended",
-  限额: "limited",
+const SUBSCRIPTION_STATUSES_BY_LABEL: Record<string, FundComparisonRow["subscriptionStatus"][]> = {
+  开放: ["open", "limited"],
+  暂停: ["suspended"],
 };
 
 export interface FundFilters {
@@ -71,7 +70,7 @@ export function filterFundRows(funds: FundComparisonRow[], filters: FundFilters)
     if (
       filters.subscriptionStatuses.length > 0
       && !filters.subscriptionStatuses.some(
-        (label) => SUBSCRIPTION_STATUS_BY_LABEL[label] === fund.subscriptionStatus,
+        (label) => SUBSCRIPTION_STATUSES_BY_LABEL[label]?.includes(fund.subscriptionStatus),
       )
     ) {
       return false;
