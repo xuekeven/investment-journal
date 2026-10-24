@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.blacklist import get_fund_blacklist, save_fund_blacklist
 from app.assets import get_asset_config, get_asset_dashboard, save_asset_config, save_asset_snapshot
 from app.database import get_db_session
 from app.models import (
@@ -20,6 +21,7 @@ from app.models import (
     ContentOptionType,
     ContentOptionUpdate,
     FundListResponse,
+    FundBlacklist,
     FundTagResponse,
     FundTagUpdate,
     HealthResponse,
@@ -34,10 +36,13 @@ from app.models import (
     NavSeriesResponse,
     LimitNotificationConfig,
     LimitNotificationConfigUpdate,
+    LimitNotificationTestRequest,
 )
 from app.limit_notifications import (
     get_limit_notification_config,
+    list_limit_notification_configs,
     save_limit_notification_config,
+    save_limit_notification_configs,
     send_test_limit_notification,
 )
 from app.repository import FundRepository, get_repository
@@ -94,6 +99,19 @@ def readiness(
         data_mode=current_settings.data_mode,
         checked_at=datetime.now(UTC),
     )
+
+
+@app.get(f"{settings.api_prefix}/fund-blacklist", response_model=FundBlacklist)
+def list_fund_blacklist(session: SessionDep) -> FundBlacklist:
+    return get_fund_blacklist(session)
+
+
+@app.put(f"{settings.api_prefix}/fund-blacklist", response_model=FundBlacklist)
+def update_fund_blacklist(payload: FundBlacklist, session: SessionDep) -> FundBlacklist:
+    try:
+        return save_fund_blacklist(session, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get(f"{settings.api_prefix}/indices", response_model=list[IndexSummary])
@@ -209,6 +227,7 @@ def update_fund_tags(
         payload.tags,
         payload.holding_amount,
         payload.recurring_amount,
+        payload.holding_cost,
     )
     if tag_state is None:
         raise HTTPException(status_code=404, detail="Fund not found")
@@ -425,6 +444,29 @@ def start_sync_task(task: SyncTaskKey) -> dict[str, object]:
 
 
 @app.get(
+    f"{settings.api_prefix}/limit-notifications/settings",
+    response_model=list[LimitNotificationConfig],
+)
+def all_limit_notification_configs(session: SessionDep) -> list[LimitNotificationConfig]:
+    return list_limit_notification_configs(session)
+
+
+@app.put(
+    f"{settings.api_prefix}/limit-notifications/settings",
+    response_model=list[LimitNotificationConfig],
+)
+def update_all_limit_notification_configs(
+    payload: list[LimitNotificationConfigUpdate],
+    session: SessionDep,
+) -> list[LimitNotificationConfig]:
+    try:
+        return save_limit_notification_configs(session, payload)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get(
     f"{settings.api_prefix}/limit-notifications",
     response_model=LimitNotificationConfig,
 )
@@ -454,7 +496,7 @@ def update_limit_notification_config(
 
 
 @app.post(f"{settings.api_prefix}/limit-notifications/test")
-def test_limit_notification(payload: LimitNotificationConfigUpdate) -> dict[str, bool]:
+def test_limit_notification(payload: LimitNotificationTestRequest) -> dict[str, bool]:
     if not payload.wework_user_id.strip():
         raise HTTPException(status_code=422, detail="必须填写企业微信 userid")
     try:

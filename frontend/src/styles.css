@@ -78,7 +78,7 @@ a { color: inherit; text-decoration: none; }
 .workspace-head { padding-bottom: 20px; position: relative; display: flex; justify-content: space-between; align-items: end; gap: 24px; }
 .workspace-head::after { content: ""; height: 1px; position: absolute; right: -38px; bottom: 0; left: -38px; background: var(--line); }
 .workspace h2 { margin: 8px 0 0; font-size: 30px; letter-spacing: -.035em; }
-.index-tabs { margin-top: 0; display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); }
+.index-tabs { margin-top: 0; display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
 .index-tab { position: relative; padding: 18px 18px 20px; text-align: left; border: 0; background: none; cursor: pointer; }
 .index-tab::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: transparent; }
 .index-tab.active::after { background: var(--green); }
@@ -167,7 +167,7 @@ a { color: inherit; text-decoration: none; }
 .search-box input::placeholder { color: #a1aaa5; }
 .search-box button { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; }
 .search-box button svg { width: 15px; }
-.fund-result-summary { margin: -7px 2px 10px; display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 14px; }
+.fund-result-summary { margin: -7px 2px 10px; scroll-margin-top: 90px; display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 14px; }
 .fund-result-count, .fund-last-synced, .fund-purchase-limit { margin: 0; }
 .fund-result-summary strong { color: var(--green-dark); font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .fund-last-synced { display: flex; align-items: center; gap: 6px; }
@@ -271,6 +271,11 @@ a { color: inherit; text-decoration: none; }
 .select-box input:checked + span { border-color: var(--green); background: var(--green); }
 .select-box.disabled { opacity: .35; cursor: not-allowed; }
 .table-footnote { margin: 13px 3px 0; color: #8b9690; font-size: 10px; line-height: 1.6; }
+.fund-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 2px 0; color: var(--muted); font-size: 13px; }
+.fund-pagination-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.fund-pagination button { min-width: 34px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); cursor: pointer; }
+.fund-pagination button:hover:not(:disabled), .fund-pagination button.active { border-color: var(--green); color: var(--green-dark); background: #edf8f1; }
+.fund-pagination button:disabled { opacity: .45; cursor: not-allowed; }
 .fund-cards { display: none; }
 
 .state-panel { min-height: 280px; display: grid; place-content: center; justify-items: center; border: 1px dashed #ccd6d1; border-radius: 16px; text-align: center; }
@@ -343,7 +348,7 @@ a { color: inherit; text-decoration: none; }
   background: var(--panel); box-shadow: 0 28px 90px rgba(5,18,12,.32);
 }
 .limit-notification-sheet {
-  width: min(760px, 100%); max-height: calc(100vh - 48px); overflow: hidden;
+  width: min(820px, 100%); max-height: calc(100vh - 48px); overflow: hidden;
   display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,.22); border-radius: 22px;
   background: var(--panel); box-shadow: 0 28px 90px rgba(5,18,12,.32);
 }
@@ -404,8 +409,35 @@ a { color: inherit; text-decoration: none; }
 .limit-notification-footer { padding: 16px 24px 20px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
 .limit-notification-footer button { padding: 10px 18px; border-radius: 9px; font-size: 14px; font-weight: 650; cursor: pointer; }
 .limit-notification-footer button:disabled { opacity: .55; cursor: wait; }
+.message-settings-matrix { border: 1px solid var(--line); border-radius: 12px; }
+.message-settings-group { display: grid; grid-template-columns: 165px minmax(0, 1fr); }
+.message-settings-group + .message-settings-group { border-top: 1px solid var(--line); }
+.message-settings-scope { display: flex; align-items: center; padding: 14px 18px; color: var(--ink); background: #f7faf8; font-size: 14px; font-weight: 700; border-right: 1px solid var(--line); }
+.message-settings-group:first-child .message-settings-scope { border-top-left-radius: 11px; }
+.message-settings-group:last-child .message-settings-scope { border-bottom-left-radius: 11px; }
+.message-settings-rows { min-width: 0; }
+.message-settings-row { min-height: 48px; display: grid; grid-template-columns: 160px minmax(0, 1fr) 80px; align-items: center; column-gap: 14px; padding: 8px 16px; }
+.message-settings-row + .message-settings-row { border-top: 1px solid var(--line); }
+.message-settings-venue-control { display: flex; align-items: center; gap: 12px; }
+.message-settings-venue { color: #4b5e55; font-size: 13px; font-weight: 650; }
+.message-settings-action { display: flex; align-items: center; gap: 5px; color: var(--ink); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.message-direction-select, .message-direction-select .note-select { width: 70px; flex: none; }
+.message-direction-select .note-select .multi-filter-trigger { width: 70px; height: 32px; padding: 0 21px 0 8px; border-radius: 7px; }
+.message-direction-select .note-select .multi-filter-trigger::after { right: 10px; top: 11px; }
+.message-direction-select .note-select.open .multi-filter-trigger::after { top: 14px; }
+.message-direction-select .note-select .multi-filter-menu { min-width: 70px; z-index: 25; }
+.message-direction-select .note-select .multi-filter-menu button { min-height: 32px; padding: 6px 8px; }
+.message-settings-action input { width: 60px; height: 32px; flex: none; padding: 0 4px; border: 1px solid #d4ddd8; border-radius: 7px; background: #fff; color: var(--ink); font: inherit; text-align: right; }
+.message-settings-action input:focus { outline: 2px solid #9bc9a9; outline-offset: 1px; }
+.message-settings-test { min-width: 80px; padding: 7px 8px; align-self: center; justify-self: end; white-space: nowrap; }
+.message-settings-delivery { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+.message-settings-delivery label { display: flex; flex-direction: column; gap: 7px; color: #52615a; font-size: 12px; font-weight: 650; }
+.message-settings-delivery input { height: 40px; padding: 0 11px; border: 1px solid #d4ddd8; border-radius: 9px; color: var(--ink); background: white; font: inherit; font-size: 13px; }
+.message-settings-delivery input:focus { outline: 2px solid #9bc9a9; outline-offset: 1px; }
+.limit-notification-content > .limit-notification-note { margin-top: 16px; }
+.limit-notification-content > .limit-test-action { margin-top: 14px; }
 .tagged-funds-sheet {
-  width: min(960px, 100%); max-height: calc(100vh - 48px); overflow: hidden;
+  width: min(1080px, 100%); max-height: calc(100vh - 48px); overflow: hidden;
   display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,.22); border-radius: 22px;
   background: var(--panel); box-shadow: 0 28px 90px rgba(5,18,12,.32);
 }
@@ -417,6 +449,40 @@ a { color: inherit; text-decoration: none; }
 .tagged-edit-button:hover:not(:disabled) { border-color: #8eb7a1; color: var(--green-dark); }
 .tagged-edit-button.primary { border-color: var(--green); color: white; background: var(--green); }
 .tagged-edit-button:disabled { opacity: .55; cursor: wait; }
+.blacklist-sheet { width: min(800px, 100%); }
+.blacklist-form { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.blacklist-content { padding: 22px 24px; overflow-y: auto; display: grid; gap: 24px; }
+.blacklist-section h3 { margin: 0 0 11px; color: var(--ink); font-size: 16px; }
+.blacklist-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.blacklist-table { width: 100%; min-width: 470px; border-collapse: collapse; table-layout: fixed; }
+.blacklist-table th, .blacklist-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.blacklist-table tr:last-child td { border-bottom: 0; }
+.blacklist-table th { color: #65716b; background: #f7f9f7; font-size: 14px; font-weight: 650; }
+.blacklist-table .blacklist-value-column, .blacklist-table .blacklist-value-cell { width: 38%; }
+.blacklist-code-table { min-width: 700px; }
+.blacklist-code-table .blacklist-value-column, .blacklist-code-table .blacklist-value-cell { width: 108px; }
+.blacklist-code-table .blacklist-name-column, .blacklist-code-table .blacklist-name-cell { width: 270px; }
+.blacklist-code-table .blacklist-value-cell { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.blacklist-manager-table { min-width: 680px; }
+.blacklist-manager-table .blacklist-manager-column, .blacklist-manager-table .blacklist-manager-cell { width: 112px; }
+.blacklist-manager-table .blacklist-value-column, .blacklist-manager-table .blacklist-value-cell { width: 170px; }
+.blacklist-table td { color: #56645d; font-size: 14px; overflow-wrap: anywhere; }
+.blacklist-table td strong { color: var(--ink); font-weight: 650; }
+.blacklist-table .blacklist-empty { padding: 22px 12px; color: var(--muted); text-align: center; }
+.blacklist-table input { width: 100%; min-width: 0; height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: white; font: inherit; outline: 0; }
+.blacklist-table input:focus { border-color: #83b89d; box-shadow: 0 0 0 3px rgba(17,121,77,.08); }
+.blacklist-table .blacklist-drag-cell { width: 42px; padding: 0 7px; text-align: center; }
+.blacklist-table .blacklist-delete-cell { width: 48px; padding: 0 7px; text-align: center; }
+.blacklist-table tr.dragging { opacity: .45; }
+.blacklist-table tr.drag-over { background: #edf7f1; box-shadow: inset 0 2px 0 rgba(17,121,77,.25); }
+.blacklist-table .drag-handle { width: 28px; height: 34px; border: 0; color: #7d8b84; background: transparent; font-size: 18px; cursor: grab; }
+.blacklist-table .drag-handle:active { cursor: grabbing; }
+.blacklist-delete { width: 34px; height: 34px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; color: var(--red); background: white; cursor: pointer; }
+.blacklist-delete svg { width: 18px; height: 18px; }
+.blacklist-muted { color: #9da6a1; }
+.blacklist-state { min-height: 240px; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--muted); font-size: 14px; }
+.blacklist-state button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; background: white; cursor: pointer; }
+.blacklist-actions { margin: 0; padding: 16px 24px 20px; border-top: 1px solid var(--line); }
 .tagged-funds-content { padding: 20px 24px 24px; overflow-y: auto; }
 .tagged-funds-summary { margin: 0 0 13px; color: var(--muted); font-size: 14px; }
 .tagged-funds-summary strong { color: var(--green-dark); font-size: 16px; }
@@ -436,6 +502,9 @@ a { color: inherit; text-decoration: none; }
 .tagged-funds-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
 .tagged-funds-table { width: 100%; min-width: 720px; border-collapse: collapse; table-layout: fixed; }
 .tagged-funds-table.has-tag-value-column { min-width: 840px; }
+.tagged-funds-table.has-cost-column { min-width: 905px; }
+.tagged-funds-table.has-action-column { min-width: 910px; }
+.tagged-funds-table.has-cost-column.has-action-column { min-width: 940px; }
 .tagged-funds-table th, .tagged-funds-table td {
   padding: 12px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle;
 }
@@ -443,10 +512,24 @@ a { color: inherit; text-decoration: none; }
 .tagged-funds-table th { color: #65716b; background: #f7f9f7; font-size: 14px; font-weight: 650; }
 .tagged-funds-table .tagged-code-column { width: 105px; }
 .tagged-funds-table .tagged-name-column { width: 315px; }
+.tagged-funds-table.has-cost-column .tagged-name-column { width: 225px; }
 .tagged-funds-table .tagged-value-column { width: 150px; }
+.tagged-funds-table.has-cost-column .tagged-value-column { width: 100px; }
+.tagged-funds-table .tagged-cost-column { width: 100px; }
+.tagged-funds-table .tagged-profit-column { width: 85px; }
+.tagged-funds-table .tagged-action-column { width: 64px; text-align: center; }
 .tagged-funds-table .tagged-type-column { width: 90px; }
+.tagged-funds-table.has-cost-column .tagged-type-column { width: 80px; }
 .tagged-funds-table .tagged-currency-column { width: 80px; }
 .tagged-funds-table .tagged-limit-column { width: 120px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-code-column { width: 100px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-name-column { width: 210px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-currency-column { width: 75px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-limit-column { width: 115px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-value-column { width: 100px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-cost-column { width: 100px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-profit-column { width: 85px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-action-column { width: 60px; }
 .tagged-funds-table td { color: #56645d; font-size: 14px; }
 .tagged-funds-table td > strong { display: block; color: var(--ink); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .tagged-funds-table td > small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
@@ -456,11 +539,26 @@ a { color: inherit; text-decoration: none; }
 }
 .tagged-funds-table .subscription-tag { font-size: 12px !important; }
 .tagged-value-cell .tagged-user-tag { margin-top: 0; padding: 4px 8px; font-size: 14px; }
+.tagged-holding-value, .tagged-cost-value { color: var(--ink); font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tagged-cost-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tagged-cost-values { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.tagged-current-price { color: var(--ink); font-weight: 650; }
+.tagged-profit-cell { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
+.tagged-profit-cell.positive { color: #087346; }
+.tagged-profit-cell.negative { color: #b83c32; }
+.tagged-cost-cell input {
+  width: 70px; height: 32px; padding: 0 8px; border: 1px solid #ccd8d1; border-radius: 8px;
+  color: var(--ink); background: white; font-size: 14px; outline: 0;
+}
+.tagged-cost-cell input:focus { border-color: #83b89d; box-shadow: 0 0 0 2px rgba(17,121,77,.08); }
+.tagged-action-cell { text-align: center !important; }
+.tagged-edit-empty { margin: 12px 0; color: var(--muted); font-size: 13px; }
 .tagged-amount-editor { display: flex; align-items: center; gap: 6px; color: #627069; font-size: 14px; white-space: nowrap; }
 .tagged-amount-editor input {
   width: 88px; height: 32px; padding: 0 8px; border: 1px solid #ccd8d1; border-radius: 8px;
   color: var(--ink); background: white; font-size: 14px; outline: 0;
 }
+.tagged-funds-table.has-cost-column .tagged-amount-editor input { width: 78px; }
 .tagged-amount-editor input:focus { border-color: #83b89d; box-shadow: 0 0 0 2px rgba(17,121,77,.08); }
 .tagged-limit-muted { color: #9da6a1; }
 .tagged-funds-state { min-height: 300px; display: grid; place-content: center; justify-items: center; text-align: center; }
@@ -492,8 +590,9 @@ a { color: inherit; text-decoration: none; }
 .fund-edit-tag-option { width: 64px; flex: none; display: inline-flex; align-items: center; gap: 8px; color: #5f6d66; font-size: 12px; cursor: pointer; }
 .fund-edit-tag-option input { width: 18px; height: 18px; margin: 0; padding: 0; flex: none; accent-color: var(--green); cursor: pointer; }
 .fund-edit-tag-amount { min-width: 0; display: flex; align-items: center; gap: 6px; color: #68756f; font-size: 12px; white-space: nowrap; }
+.fund-edit-holding-fields { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; }
 .fund-edit-tag-amount input {
-  width: 110px; height: 30px; padding: 0 8px; border: 1px solid #d4ddd8; border-radius: 8px;
+  width: 80px; height: 30px; padding: 0 8px; border: 1px solid #d4ddd8; border-radius: 8px;
   color: var(--ink); background: #fbfcfb; font: inherit; font-size: 12px; outline: 0;
 }
 .fund-edit-tag-amount input:focus { border-color: #83b89d; box-shadow: 0 0 0 2px rgba(17,121,77,.08); background: white; }
@@ -625,7 +724,9 @@ a { color: inherit; text-decoration: none; }
   .workspace-head::after { right: -14px; left: -14px; }
   .workspace h2 { font-size: 26px; }
   .fund-result-summary { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .index-tabs { overflow-x: auto; grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+  .fund-pagination { align-items: flex-start; flex-direction: column; }
+  .fund-pagination-buttons { justify-content: flex-start; }
+  .index-tabs { overflow-x: auto; grid-template-columns: repeat(4, minmax(150px, 1fr)); }
   .index-tab { padding: 16px 10px; }
   .toolbar { align-items: stretch; flex-direction: column; }
   .toolbar-filters { width: 100%; position: relative; align-items: flex-start; gap: 8px; }
@@ -664,6 +765,13 @@ a { color: inherit; text-decoration: none; }
   .comparison-sheet { width: 100%; max-height: 100vh; border: 0; border-radius: 0; }
   .sync-info-sheet { width: 100%; max-height: 100vh; border: 0; border-radius: 0; }
   .limit-notification-sheet { width: 100%; max-height: 100vh; border: 0; border-radius: 0; }
+  .message-settings-group { grid-template-columns: 100px minmax(0, 1fr); }
+  .message-settings-scope { padding: 9px; font-size: 12px; }
+  .message-settings-row { grid-template-columns: minmax(0, 1fr); gap: 7px; padding: 8px; }
+  .message-settings-venue { font-size: 11px; }
+  .message-settings-action { font-size: 12px; white-space: normal; flex-wrap: wrap; }
+  .message-settings-test { justify-self: start; }
+  .message-settings-delivery { grid-template-columns: 1fr; }
   .limit-notification-row { grid-template-columns: 1fr; gap: 7px; }
   .limit-switch-control { align-items: flex-start; flex-direction: column; }
   .limit-notification-aligned { margin-left: 0; }

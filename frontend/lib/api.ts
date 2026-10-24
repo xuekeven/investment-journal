@@ -7,6 +7,7 @@ import type {
   ContentOptionItem,
   ContentOptionType,
   FundListResponse,
+  FundBlacklist,
   FundTag,
   FundTagResponse,
   IndexSummary,
@@ -17,6 +18,7 @@ import type {
   KnowledgeArticlePayload,
   LimitNotificationConfig,
   LimitNotificationConfigUpdate,
+  LimitNotificationTestRequest,
   LimitNotificationScope,
   TradingVenue,
 } from "./types";
@@ -114,6 +116,14 @@ export function getIndices(signal?: AbortSignal): Promise<IndexSummary[]> {
   return getJson<IndexSummary[]>("/indices", signal);
 }
 
+export function getFundBlacklist(signal?: AbortSignal): Promise<FundBlacklist> {
+  return getJson<FundBlacklist>("/fund-blacklist", signal);
+}
+
+export function saveFundBlacklist(payload: FundBlacklist): Promise<FundBlacklist> {
+  return putJson<FundBlacklist>("/fund-blacklist", payload);
+}
+
 export function getFunds(
   indexId: string,
   venue?: TradingVenue,
@@ -141,10 +151,11 @@ export function updateFundTags(
   tags: FundTag[],
   holdingAmount: number | null,
   recurringAmount: number | null,
+  holdingCost: number | null,
 ): Promise<FundTagResponse> {
   return putJson<FundTagResponse>(
     `/funds/${encodeURIComponent(fundCode)}/tags`,
-    { tags, holdingAmount, recurringAmount },
+    { tags, holdingAmount, recurringAmount, holdingCost },
   );
 }
 
@@ -171,6 +182,16 @@ export function getLimitNotificationConfig(
   return getJson<LimitNotificationConfig>(`/limit-notifications${query}`, signal);
 }
 
+export function getMessageNotificationSettings(signal?: AbortSignal): Promise<LimitNotificationConfig[]> {
+  return getJson<LimitNotificationConfig[]>("/limit-notifications/settings", signal);
+}
+
+export function updateMessageNotificationSettings(
+  payload: LimitNotificationConfigUpdate[],
+): Promise<LimitNotificationConfig[]> {
+  return putJson<LimitNotificationConfig[]>("/limit-notifications/settings", payload);
+}
+
 export function updateLimitNotificationConfig(
   payload: LimitNotificationConfigUpdate,
 ): Promise<LimitNotificationConfig> {
@@ -178,7 +199,7 @@ export function updateLimitNotificationConfig(
 }
 
 export function testLimitNotification(
-  payload: LimitNotificationConfigUpdate,
+  payload: LimitNotificationTestRequest,
 ): Promise<{ sent: boolean }> {
   return sendJson<{ sent: boolean }>("/limit-notifications/test", "POST", payload);
 }

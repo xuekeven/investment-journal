@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal
 
@@ -18,6 +19,8 @@ class ProductStructure(str, Enum):
     ETF = "ETF"
     OPEN_END_INDEX = "普通开放式指数基金"
     ETF_FEEDER = "ETF联接基金"
+    OPEN_END = "普通开放式基金"
+    LOF = "LOF"
 
 
 class TradingVenue(str, Enum):
@@ -28,6 +31,7 @@ class TradingVenue(str, Enum):
 class TrackingMethod(str, Enum):
     PASSIVE = "被动指数"
     ENHANCED = "指数增强"
+    ACTIVE = "主动管理"
 
 
 class DataStatus(str, Enum):
@@ -44,16 +48,33 @@ class FundTagType(str, Enum):
     RECURRING = "recurring"
 
 
+class FundBlacklistItem(ApiModel):
+    id: int | None = None
+    value: str = Field(min_length=1, max_length=200)
+    manager_name: str = Field(default="", max_length=200)
+    fund_name: str = Field(default="", max_length=200)
+    reason: str = Field(default="", max_length=1000)
+
+
+class FundBlacklist(ApiModel):
+    companies: list[FundBlacklistItem] = Field(default_factory=list)
+    codes: list[FundBlacklistItem] = Field(default_factory=list)
+
+
 LimitNotificationScope = Literal[
-    "sp-500", "nasdaq-100", "csi-500", "favorite", "holding", "recurring"
+    "sp-500", "nasdaq-100", "other-qdii", "csi-500", "favorite", "holding", "recurring"
 ]
 LimitNotificationFundType = Literal["on_exchange", "off_exchange", "all"]
+DeviationDirection = Literal["above", "below"]
 
 
 class LimitNotificationConfigUpdate(ApiModel):
     enabled: bool = False
     scope: LimitNotificationScope = "favorite"
     fund_type: LimitNotificationFundType = "off_exchange"
+    deviation_enabled: bool = False
+    deviation_threshold: Decimal = Field(default=Decimal("0"), max_digits=8, decimal_places=2)
+    deviation_direction: DeviationDirection = "above"
     wework_user_id: str = Field(default="XueKai", max_length=256)
     wework_app: str = Field(default="main", min_length=1, max_length=64)
 
@@ -62,6 +83,15 @@ class LimitNotificationConfig(LimitNotificationConfigUpdate):
     relay_configured: bool = False
     last_sent_at: datetime | None = None
     last_error: str | None = None
+
+
+class LimitNotificationTestRequest(ApiModel):
+    scope: LimitNotificationScope
+    kind: Literal["deviation", "limit"]
+    deviation_threshold: Decimal = Field(default=Decimal("0"), max_digits=8, decimal_places=2)
+    deviation_direction: DeviationDirection = "above"
+    wework_user_id: str = Field(min_length=1, max_length=256)
+    wework_app: str = Field(default="main", min_length=1, max_length=64)
 
 
 class HealthResponse(ApiModel):
@@ -131,12 +161,14 @@ class FundComparisonRow(ApiModel):
     note: str | None = None
     tags: list[FundTagType] = Field(default_factory=list)
     holding_amount: float | None = Field(default=None, ge=0)
+    holding_cost: float | None = Field(default=None, ge=0)
     recurring_amount: float | None = Field(default=None, ge=0)
 
 
 class FundTagState(ApiModel):
     tags: list[FundTagType] = Field(default_factory=list, max_length=3)
     holding_amount: float | None = Field(default=None, ge=0)
+    holding_cost: float | None = Field(default=None, ge=0)
     recurring_amount: float | None = Field(default=None, ge=0)
 
 

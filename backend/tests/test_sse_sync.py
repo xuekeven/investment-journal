@@ -36,6 +36,14 @@ def test_classifies_us_index_etfs() -> None:
     assert classify(row("纳斯达克100指数", "纳指ETF国泰")).family_id == "nasdaq-100"
 
 
+def test_classifies_other_qdii_etf() -> None:
+    assert classify(row("恒生科技指数", "恒生科技ETF(QDII)")).family_id == "other-qdii"
+    unlabeled = {**row("恒生科技指数", "恒生科技ETF"), "FUND_CODE": "513010"}
+    assert classify(unlabeled, {"513010": "易方达恒生科技ETF（QDII）"}).family_id == "other-qdii"
+    lof = {**row("全球半导体指数", "全球半导体基金"), "FUND_CODE": "501225"}
+    assert classify(lof, {"501225": "全球半导体股票（QDII-LOF）"}) is None
+
+
 def test_parses_sse_detail_page_nav() -> None:
     records = parse_sse_nav_records(
         {

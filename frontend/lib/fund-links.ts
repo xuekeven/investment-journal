@@ -4,6 +4,7 @@ const SSE_CATEGORY_BY_INDEX: Record<string, string> = {
   "csi-500": "F112",
   "sp-500": "F131",
   "nasdaq-100": "F131",
+  "other-qdii": "F131",
 };
 
 export function getFundDetailUrl(fund: FundComparisonRow) {

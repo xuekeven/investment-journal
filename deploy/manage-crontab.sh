@@ -25,6 +25,7 @@ source "${schedule_file}"
 : "${SZSE_DETAILS_SCHEDULE:?SZSE_DETAILS_SCHEDULE is required}"
 : "${CSRC_FUNDS_SCHEDULE:?CSRC_FUNDS_SCHEDULE is required}"
 : "${CSRC_DETAILS_SCHEDULE:?CSRC_DETAILS_SCHEDULE is required}"
+: "${CSRC_DETAILS_EVENING_SCHEDULE:?CSRC_DETAILS_EVENING_SCHEDULE is required}"
 
 sync_log="${IFC_SYNC_LOG:-${project_directory}/logs/investment-journal-sync.log}"
 log_directory="$(dirname -- "${sync_log}")"
@@ -105,6 +106,8 @@ fi
     "${CSRC_FUNDS_SCHEDULE}" "${quoted_backend}" "${csrc_funds_runner}" "${quoted_log}"
   printf '%s cd %s && %s -m app.sync.csrc_details >> %s 2>&1\n' \
     "${CSRC_DETAILS_SCHEDULE}" "${quoted_backend}" "${csrc_details_runner}" "${quoted_log}"
+  printf '%s cd %s && %s -m app.sync.csrc_details >> %s 2>&1\n' \
+    "${CSRC_DETAILS_EVENING_SCHEDULE}" "${quoted_backend}" "${csrc_details_runner}" "${quoted_log}"
   printf '%s\n' "${managed_block_end}"
 } >> "${generated_crontab}"
 

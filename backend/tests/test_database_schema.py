@@ -7,6 +7,7 @@ CORE_TABLES = {
     "index_definition",
     "fund_product",
     "fund_share_class",
+    "fund_blacklist_entry",
     "fund_listing",
     "fee_history",
     "nav_daily",
@@ -34,6 +35,19 @@ def test_all_core_tables_are_declared() -> None:
     assert set(Base.metadata.tables) == CORE_TABLES
 
 
+def test_blacklisted_fund_codes_can_store_names() -> None:
+    table = Base.metadata.tables["fund_blacklist_entry"]
+    assert "fund_name" in table.columns
+    assert "manager_name" in table.columns
+    identity = next(
+        constraint for constraint in table.constraints
+        if constraint.name == "uq_fund_blacklist_entry_identity"
+    )
+    assert {column.name for column in identity.columns} == {
+        "user_id", "entry_type", "value", "manager_name",
+    }
+
+
 def test_fund_entities_are_separate_and_linked() -> None:
     share_table = Base.metadata.tables["fund_share_class"]
     listing_table = Base.metadata.tables["fund_listing"]
@@ -45,7 +59,7 @@ def test_fund_entities_are_separate_and_linked() -> None:
     assert "fund_share_class.id" in listing_foreign_keys
 
 
-def test_product_scope_excludes_lof() -> None:
+def test_product_scope_includes_lof_and_active_qdii() -> None:
     product_table = Base.metadata.tables["fund_product"]
     structure_constraint = next(
         constraint
@@ -53,7 +67,8 @@ def test_product_scope_excludes_lof() -> None:
         if constraint.name == "ck_fund_product_structure"
     )
 
-    assert "LOF" not in str(structure_constraint.sqltext)
+    assert "LOF" in str(structure_constraint.sqltext)
+    assert "普通开放式基金" in str(structure_constraint.sqltext)
 
 
 def test_single_user_tags_are_bound_to_fund_shares() -> None:
@@ -70,6 +85,7 @@ def test_single_user_tags_are_bound_to_fund_shares() -> None:
     assert "holding" in str(tag_constraint.sqltext)
     assert "recurring" in str(tag_constraint.sqltext)
     assert "amount" in tag_table.columns
+    assert "cost" in tag_table.columns
     amount_constraint = next(
         constraint
         for constraint in tag_table.constraints

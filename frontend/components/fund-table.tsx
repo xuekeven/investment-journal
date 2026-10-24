@@ -18,6 +18,7 @@ interface FundListProps {
     tags: FundTag[],
     holdingAmount: number | null,
     recurringAmount: number | null,
+    holdingCost: number | null,
   ) => Promise<boolean>;
   tagSavingCodes: string[];
   onOpenShareClassHelp: () => void;
@@ -110,12 +111,16 @@ function FundEditDialog({
     tags: FundTag[],
     holdingAmount: number | null,
     recurringAmount: number | null,
+    holdingCost: number | null,
   ) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [draftTags, setDraftTags] = useState<FundTag[]>(fund.tags);
   const [holdingAmount, setHoldingAmount] = useState(
     fund.holdingAmount === null ? "" : String(fund.holdingAmount),
+  );
+  const [holdingCost, setHoldingCost] = useState(
+    fund.holdingCost === null ? "" : String(fund.holdingCost),
   );
   const [recurringAmount, setRecurringAmount] = useState(
     fund.recurringAmount === null ? "" : String(fund.recurringAmount),
@@ -151,12 +156,14 @@ function FundEditDialog({
     event.preventDefault();
     if (saving) return;
     const parsedHoldingAmount = holdingAmount.trim() === "" ? null : Number(holdingAmount);
+    const parsedHoldingCost = holdingCost.trim() === "" ? null : Number(holdingCost);
     const parsedRecurringAmount = recurringAmount.trim() === "" ? null : Number(recurringAmount);
     if (await onSave(
       fund.code,
       draftTags,
       parsedHoldingAmount,
       parsedRecurringAmount,
+      parsedHoldingCost,
     )) onClose();
   }
 
@@ -214,20 +221,35 @@ function FundEditDialog({
                       <span>{tag.label}</span>
                     </label>
                     {tag.value === "holding" && checked && (
-                      <label className="fund-edit-tag-amount">
-                        <span>合计</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          inputMode="decimal"
-                          value={holdingAmount}
-                          disabled={saving}
-                          aria-label="持有份额"
-                          onChange={(event) => setHoldingAmount(event.target.value)}
-                        />
-                        <span>份额</span>
-                      </label>
+                      <div className="fund-edit-holding-fields">
+                        <label className="fund-edit-tag-amount">
+                          <span>合计</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            inputMode="decimal"
+                            value={holdingAmount}
+                            disabled={saving}
+                            aria-label="持有份额"
+                            onChange={(event) => setHoldingAmount(event.target.value)}
+                          />
+                          <span>份额</span>
+                        </label>
+                        <label className="fund-edit-tag-amount">
+                          <span>，成本</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            inputMode="decimal"
+                            value={holdingCost}
+                            disabled={saving}
+                            aria-label="持有成本"
+                            onChange={(event) => setHoldingCost(event.target.value)}
+                          />
+                        </label>
+                      </div>
                     )}
                     {tag.value === "recurring" && checked && (
                       <label className="fund-edit-tag-amount">

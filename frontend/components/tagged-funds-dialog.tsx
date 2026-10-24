@@ -4,13 +4,22 @@ import { createPortal } from "react-dom";
 import { groupFundRowsByIndex } from "@/lib/fund-list";
 import { getFundDetailUrl } from "@/lib/fund-links";
 import {
+  calculateHoldingProfitLoss,
   calculateRecurringInvestmentTotals,
   formatFundTagLabel,
+  holdingCurrentPrice,
 } from "@/lib/fund-tag-values";
 import type { FundComparisonRow, FundTag } from "@/lib/types";
 import { FUND_TAG_META } from "./fund-tag-meta";
-import { CloseIcon } from "./icons";
+import { CloseIcon, TrashIcon } from "./icons";
 import { SubscriptionTags } from "./subscription-tags";
+
+type TaggedFundChange = {
+  fundCode: string;
+  amount: number | null;
+  cost?: number | null;
+  remove?: boolean;
+};
 
 interface TaggedFundsDialogProps {
   tag: FundTag;
@@ -20,9 +29,9 @@ interface TaggedFundsDialogProps {
   error: string | null;
   onClose: () => void;
   onRetry: () => void;
-  onAmountsSave: (
-    tag: "holding" | "recurring",
-    updates: Array<{ fundCode: string; amount: number | null }>,
+  onChangesSave: (
+    tag: FundTag,
+    updates: TaggedFundChange[],
   ) => Promise<boolean>;
 }
 
@@ -31,6 +40,7 @@ function SubscriptionLimit({ fund }: { fund: FundComparisonRow }) {
 }
 
 const amountFormatter = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 6 });
+const profitFormatter = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 });
 
 function RecurringTotal({
   funds,
@@ -60,50 +70,70 @@ export function TaggedFundsDialog({
   error,
   onClose,
   onRetry,
-  onAmountsSave,
+  onChangesSave,
 }: TaggedFundsDialogProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const meta = FUND_TAG_META[tag];
-  const groups = groupFundRowsByIndex(funds);
-  const [editingAmounts, setEditingAmounts] = useState(false);
-  const [savingAmounts, setSavingAmounts] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [draftAmounts, setDraftAmounts] = useState<Record<string, string>>({});
-  const [amountError, setAmountError] = useState<string | null>(null);
+  const [draftCosts, setDraftCosts] = useState<Record<string, string>>({});
+  const [removedCodes, setRemovedCodes] = useState<Set<string>>(() => new Set());
+  const [editError, setEditError] = useState<string | null>(null);
+  const visibleFunds = editing ? funds.filter((fund) => !removedCodes.has(fund.code)) : funds;
+  const groups = groupFundRowsByIndex(visibleFunds);
 
-  function beginAmountEditing() {
-    if (tag === "favorite") return;
+  function beginEditing() {
     setDraftAmounts(Object.fromEntries(funds.map((fund) => {
       const amount = tag === "holding" ? fund.holdingAmount : fund.recurringAmount;
       return [fund.code, amount === null ? "" : String(amount)];
     })));
-    setAmountError(null);
-    setEditingAmounts(true);
+    setDraftCosts(Object.fromEntries(funds.map((fund) => [
+      fund.code, fund.holdingCost === null ? "" : String(fund.holdingCost),
+    ])));
+    setRemovedCodes(new Set());
+    setEditError(null);
+    setEditing(true);
   }
 
-  async function saveAmounts() {
-    if (tag === "favorite" || savingAmounts) return;
-    const updates = funds.flatMap((fund) => {
+  function cancelEditing() {
+    setEditing(false);
+    setRemovedCodes(new Set());
+    setEditError(null);
+  }
+
+  async function saveChanges() {
+    if (saving) return;
+    const updates = funds.flatMap((fund): TaggedFundChange[] => {
+      if (removedCodes.has(fund.code)) return [{ fundCode: fund.code, amount: null, remove: true }];
+      if (tag === "favorite") return [];
       const draft = draftAmounts[fund.code] ?? "";
       const amount = draft.trim() === "" ? null : Number(draft);
       const previous = tag === "holding" ? fund.holdingAmount : fund.recurringAmount;
-      return amount === previous ? [] : [{ fundCode: fund.code, amount }];
+      const costDraft = draftCosts[fund.code] ?? "";
+      const cost = costDraft.trim() === "" ? null : Number(costDraft);
+      if (amount === previous && (tag !== "holding" || cost === fund.holdingCost)) return [];
+      return [{ fundCode: fund.code, amount, ...(tag === "holding" ? { cost } : {}) }];
     });
-    if (updates.some(({ amount }) => amount !== null && (!Number.isFinite(amount) || amount < 0))) {
-      setAmountError("请输入 0 或大于 0 的数字，也可以留空。");
+    if (updates.some(({ amount, cost }) => (
+      (amount !== null && (!Number.isFinite(amount) || amount < 0))
+      || (cost !== undefined && cost !== null && (!Number.isFinite(cost) || cost < 0))
+    ))) {
+      setEditError("请输入 0 或大于 0 的数字，也可以留空。");
       return;
     }
     if (updates.length === 0) {
-      setEditingAmounts(false);
+      cancelEditing();
       return;
     }
-    setSavingAmounts(true);
-    setAmountError(null);
-    const saved = await onAmountsSave(tag, updates);
-    setSavingAmounts(false);
+    setSaving(true);
+    setEditError(null);
+    const saved = await onChangesSave(tag, updates);
+    setSaving(false);
     if (saved) {
-      setEditingAmounts(false);
+      cancelEditing();
     } else {
-      setAmountError("部分数据保存失败，请检查后重试。");
+      setEditError("部分数据保存失败，请检查后重试。");
     }
   }
 
@@ -131,7 +161,7 @@ export function TaggedFundsDialog({
       aria-modal="true"
       aria-labelledby="tagged-funds-title"
       onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget && !saving) onClose();
       }}
     >
       <div className="tagged-funds-sheet">
@@ -141,28 +171,28 @@ export function TaggedFundsDialog({
             <h2 id="tagged-funds-title">{meta.title}</h2>
           </div>
           <div className="tagged-header-actions">
-            {tag !== "favorite" && !editingAmounts ? (
-              <button className="tagged-edit-button" type="button" onClick={beginAmountEditing}>
+            {!editing && !loading && !error ? (
+              <button className="tagged-edit-button" type="button" onClick={beginEditing}>
                 编辑
               </button>
             ) : null}
-            {tag !== "favorite" && editingAmounts ? (
+            {editing ? (
               <>
                 <button
                   className="tagged-edit-button secondary"
                   type="button"
-                  disabled={savingAmounts}
-                  onClick={() => setEditingAmounts(false)}
+                  disabled={saving}
+                  onClick={cancelEditing}
                 >
                   取消
                 </button>
                 <button
                   className="tagged-edit-button primary"
                   type="button"
-                  disabled={savingAmounts}
-                  onClick={() => void saveAmounts()}
+                  disabled={saving}
+                  onClick={() => void saveChanges()}
                 >
-                  {savingAmounts ? "保存中…" : "保存"}
+                  {saving ? "保存中…" : "保存"}
                 </button>
               </>
             ) : null}
@@ -170,7 +200,7 @@ export function TaggedFundsDialog({
               ref={closeButtonRef}
               className="icon-button"
               type="button"
-              disabled={savingAmounts}
+              disabled={saving}
               onClick={onClose}
               aria-label={`关闭${meta.title}`}
             >
@@ -200,12 +230,13 @@ export function TaggedFundsDialog({
             <>
               <p className="tagged-funds-summary">
                 共有 <strong>{groups.length}</strong> 种基金、
-                <strong>{funds.length}</strong> 个基金份额
+                <strong>{visibleFunds.length}</strong> 个基金份额
                 {tag === "recurring" ? (
-                  <>，<RecurringTotal funds={funds} prefix="合计定投" /></>
+                  <>，<RecurringTotal funds={visibleFunds} prefix="合计定投" /></>
                 ) : null}
               </p>
-              {amountError ? <p className="tagged-amount-error">{amountError}</p> : null}
+              {editError ? <p className="tagged-amount-error" role="alert">{editError}</p> : null}
+              {editing && visibleFunds.length === 0 ? <p className="tagged-edit-empty">保存后将移除这些基金。</p> : null}
               <div className="tagged-funds-groups">
                 {groups.map((group) => (
                   <section className="tagged-funds-group" key={group.indexId}>
@@ -217,22 +248,37 @@ export function TaggedFundsDialog({
                       </div>
                     </header>
                     <div className="tagged-funds-table-wrap">
-                      <table className={`tagged-funds-table ${tag === "favorite" ? "" : "has-tag-value-column"}`}>
+                      <table className={`tagged-funds-table ${tag === "favorite" ? "" : "has-tag-value-column"} ${tag === "holding" ? "has-cost-column" : ""} ${editing ? "has-action-column" : ""}`}>
                         <thead>
                           <tr>
                             <th className="tagged-code-column">基金代码</th>
                             <th className="tagged-name-column">基金份额</th>
                             <th className="tagged-type-column">类型</th>
                             <th className="tagged-currency-column">币种</th>
+                            <th className="tagged-limit-column">申购</th>
                             {tag !== "favorite" ? (
                               <th className="tagged-value-column">{meta.label}</th>
                             ) : null}
-                            <th className="tagged-limit-column">申购限额</th>
+                            {tag === "holding" ? (
+                              <>
+                                <th className="tagged-cost-column">现价/成本</th>
+                                <th className="tagged-profit-column">盈亏</th>
+                              </>
+                            ) : null}
+                            {editing ? <th className="tagged-action-column">操作</th> : null}
                           </tr>
                         </thead>
                         <tbody>
                           {group.funds.map((fund) => {
                             const detailUrl = getFundDetailUrl(fund);
+                            const currentPrice = tag === "holding" ? holdingCurrentPrice(fund) : null;
+                            const draftAmount = draftAmounts[fund.code]?.trim();
+                            const draftCost = draftCosts[fund.code]?.trim();
+                            const profit = tag === "holding" ? calculateHoldingProfitLoss(
+                              fund,
+                              editing ? (draftAmount ? Number(draftAmount) : null) : fund.holdingAmount,
+                              editing ? (draftCost ? Number(draftCost) : null) : fund.holdingCost,
+                            ) : null;
                             return (
                               <tr key={fund.id}>
                                 <td>
@@ -257,9 +303,10 @@ export function TaggedFundsDialog({
                                   {fund.exchange ? <small>{fund.exchange}</small> : null}
                                 </td>
                                 <td>{fund.currency}</td>
+                                <td><SubscriptionLimit fund={fund} /></td>
                                 {tag !== "favorite" ? (
                                   <td className="tagged-value-cell">
-                                    {editingAmounts ? (
+                                    {editing ? (
                                       <label className="tagged-amount-editor">
                                         <input
                                           type="number"
@@ -267,23 +314,75 @@ export function TaggedFundsDialog({
                                           step="any"
                                           inputMode="decimal"
                                           value={draftAmounts[fund.code] ?? ""}
-                                          disabled={savingAmounts}
+                                          disabled={saving}
                                           aria-label={`${fund.displayName}${meta.label}${tag === "holding" ? "份额" : "金额"}`}
                                           onChange={(event) => setDraftAmounts((current) => ({
                                             ...current,
                                             [fund.code]: event.target.value,
                                           }))}
                                         />
-                                        <span>{tag === "holding" ? "份额" : fund.currency}</span>
+                                        {tag === "holding" ? null : <span>{fund.currency}</span>}
                                       </label>
                                     ) : (
-                                      <span className={`user-tag tagged-user-tag ${tag}`}>
-                                        {formatFundTagLabel(fund, tag)}
-                                      </span>
+                                      tag === "holding" ? (
+                                        <span className="tagged-holding-value">
+                                          {fund.holdingAmount === null ? "—" : amountFormatter.format(fund.holdingAmount)}
+                                        </span>
+                                      ) : (
+                                        <span className={`user-tag tagged-user-tag ${tag}`}>
+                                          {formatFundTagLabel(fund, tag)}
+                                        </span>
+                                      )
                                     )}
                                   </td>
                                 ) : null}
-                                <td><SubscriptionLimit fund={fund} /></td>
+                                {tag === "holding" ? (
+                                  <td className="tagged-cost-cell">
+                                    <div className="tagged-cost-values">
+                                      <span className="tagged-current-price" title="现价">
+                                        {currentPrice === null ? "—" : amountFormatter.format(currentPrice)}
+                                      </span>
+                                      {editing ? (
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="any"
+                                          inputMode="decimal"
+                                          value={draftCosts[fund.code] ?? ""}
+                                          disabled={saving}
+                                          aria-label={`${fund.displayName}持有成本`}
+                                          onChange={(event) => setDraftCosts((current) => ({
+                                            ...current,
+                                            [fund.code]: event.target.value,
+                                          }))}
+                                        />
+                                      ) : (
+                                        <span className="tagged-cost-value" title="成本">
+                                          {fund.holdingCost === null ? "—" : amountFormatter.format(fund.holdingCost)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                ) : null}
+                                {tag === "holding" ? (
+                                  <td className={`tagged-profit-cell ${profit === null ? "" : profit > 0 ? "positive" : profit < 0 ? "negative" : ""}`}>
+                                    {profit === null ? "—" : `${profit > 0 ? "+" : ""}${profitFormatter.format(profit)}`}
+                                  </td>
+                                ) : null}
+                                {editing ? (
+                                  <td className="tagged-action-cell">
+                                    <button
+                                      className="blacklist-delete"
+                                      type="button"
+                                      disabled={saving}
+                                      aria-label={`删除${fund.displayName}的${meta.label}标签`}
+                                      title={`删除${meta.label}标签`}
+                                      onClick={() => setRemovedCodes((current) => new Set(current).add(fund.code))}
+                                    >
+                                      <TrashIcon />
+                                    </button>
+                                  </td>
+                                ) : null}
                               </tr>
                             );
                           })}

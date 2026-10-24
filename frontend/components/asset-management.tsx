@@ -302,50 +302,6 @@ function PurposeBreakdownCard({
   );
 }
 
-function PurposeTrendCard({
-  currentItems,
-  comparisonItems,
-  currentLabel,
-  comparisonLabel,
-}: {
-  currentItems: AssetBreakdownItem[];
-  comparisonItems: AssetBreakdownItem[];
-  currentLabel?: string | null;
-  comparisonLabel?: string | null;
-}) {
-  const current = comparisonByLabel(currentItems);
-  const previous = comparisonByLabel(comparisonItems);
-  const labels = Array.from(new Set([...comparisonItems.map((item) => item.label), ...currentItems.map((item) => item.label)]))
-    .slice(0, 4);
-  const x1 = 74;
-  const x2 = 566;
-  const y = (value: number) => 166 - Math.min(Math.max(value, 0), 100) * 1.25;
-
-  return (
-    <article className="asset-card asset-purpose-trend-card">
-      <header><h2>配置变化趋势</h2><span>两期资金用途占比变化</span></header>
-      <div className="asset-purpose-trend">
-        <svg viewBox="0 0 640 205" role="img" aria-label="两期资金用途占比变化">
-          {[0, 20, 40, 60, 80, 100].map((tick) => <g key={tick}><line x1="60" x2="580" y1={y(tick)} y2={y(tick)} className="asset-chart-grid" /><text x="26" y={y(tick) + 3}>{tick}%</text></g>)}
-          {labels.map((label, index) => {
-            const previousPercent = previous.get(label)?.percent ?? 0;
-            const currentPercent = current.get(label)?.percent ?? 0;
-            const color = PURPOSE_COLOR_BY_LABEL.get(label) ?? PURPOSE_COLORS[index % PURPOSE_COLORS.length];
-            return <g key={label}>
-              <line x1={x1} x2={x2} y1={y(previousPercent)} y2={y(currentPercent)} stroke={color} className="asset-purpose-trend-line" />
-              <circle cx={x1} cy={y(previousPercent)} r="4" fill={color} />
-              <circle cx={x2} cy={y(currentPercent)} r="4" fill={color} />
-              <text x={x2 + 9} y={y(currentPercent) + 3} fill={color} className="asset-purpose-trend-value">{label} {currentPercent.toFixed(1)}%</text>
-            </g>;
-          })}
-          <text x={x1} y="192" textAnchor="middle">{comparisonLabel}</text>
-          <text x={x2} y="192" textAnchor="middle">{currentLabel}</text>
-        </svg>
-      </div>
-    </article>
-  );
-}
-
 function AssetComparisonDashboard({ current, baseline }: { current: AssetDashboard; baseline: AssetDashboard }) {
   const cards = [
     ["总资产", current.summary.netAssets, baseline.summary.netAssets, "total"],
@@ -365,7 +321,7 @@ function AssetComparisonDashboard({ current, baseline }: { current: AssetDashboa
         const delta = value - baselineValue;
         const deltaPercent = baselineValue ? delta / Math.abs(baselineValue) * 100 : 0;
         const unchanged = Math.abs(delta) < .005;
-        return <article key={label}><SummaryIcon type={icon} /><div><span>{label}</span><p><strong className={unchanged || delta > 0 ? "up" : "down"}>{unchanged ? "未变化" : `${delta > 0 ? "↑" : "↓"} ${formatAmount(Math.abs(delta))} 万元`}</strong><em className={unchanged || delta > 0 ? "up" : "down"}>{formatSigned(deltaPercent, "%")}</em></p><small>{formatAmount(baselineValue)}　→　{formatAmount(value)} 万元</small></div></article>;
+        return <article key={label}><SummaryIcon type={icon} /><div><span>{label}</span><p><strong className={unchanged || delta > 0 ? "up" : "down"}>{unchanged ? "未变化" : `${delta > 0 ? "↑" : "↓"} ${formatAmount(Math.abs(delta))} 万元`}</strong><em className={unchanged || delta > 0 ? "up" : "down"}>{formatSigned(deltaPercent, "%")}</em></p><small>{formatAmount(baselineValue)} → {formatAmount(value)} 万元</small></div></article>;
       })}</div>
     </section>
 
@@ -1122,46 +1078,6 @@ export function AssetManagement() {
     </main>
   );
 }
-function ComparisonTrendChart({ current, baseline }: { current: AssetDashboard; baseline: AssetDashboard }) {
-  const points = [
-    { label: baseline.snapshotDate, netAssets: baseline.summary.netAssets, investableAssets: baseline.summary.investableAssets },
-    { label: current.snapshotDate, netAssets: current.summary.netAssets, investableAssets: current.summary.investableAssets },
-  ];
-  const values = points.flatMap((item) => [item.netAssets, item.investableAssets]);
-  const rawMinimum = Math.min(...values);
-  const rawMaximum = Math.max(...values);
-  const padding = Math.max((rawMaximum - rawMinimum) * .2, .5);
-  const minimum = rawMinimum - padding;
-  const maximum = rawMaximum + padding;
-  const range = maximum - minimum || 1;
-  const chartLeft = 88;
-  const chartRight = 610;
-  const y = (value: number) => 164 - (value - minimum) / range * 126;
-  const ticks = Array.from({ length: 5 }, (_, index) => maximum - index * range / 4);
-
-  return <div className="asset-trend-chart comparison-trend-chart">
-    <svg viewBox="0 0 640 214" role="img" aria-label="所选两期总资产与可支配资产金额变化">
-      <text x="8" y="15" className="asset-chart-axis-title">金额（万元）</text>
-      {ticks.map((tick) => <g key={tick}>
-        <line x1={chartLeft} x2={chartRight} y1={y(tick)} y2={y(tick)} className="asset-chart-grid" />
-        <text x="55" y={y(tick) + 3} textAnchor="end" className="asset-chart-axis-label">{formatAmount(tick)}</text>
-      </g>)}
-      <path d={`M${chartLeft},${y(points[0].netAssets)} L${chartRight},${y(points[1].netAssets)}`} className="asset-chart-line net" />
-      <path d={`M${chartLeft},${y(points[0].investableAssets)} L${chartRight},${y(points[1].investableAssets)}`} className="asset-chart-line investable" />
-      {points.map((item, index) => {
-        const pointX = index ? chartRight : chartLeft;
-        return <g key={item.label}>
-          <circle cx={pointX} cy={y(item.netAssets)} r="4" className="asset-chart-dot net" />
-          <circle cx={pointX} cy={y(item.investableAssets)} r="4" className="asset-chart-dot investable" />
-          <text x={pointX} y={y(item.netAssets) - 9} textAnchor="middle" className="asset-chart-value net">{formatAmount(item.netAssets)}</text>
-          <text x={pointX} y={y(item.investableAssets) + 15} textAnchor="middle" className="asset-chart-value investable">{formatAmount(item.investableAssets)}</text>
-          <text x={pointX} y="202" textAnchor="middle" className="asset-chart-date">{item.label}</text>
-        </g>;
-      })}
-    </svg>
-  </div>;
-}
-
 function ComparisonAssetClassCard({ currentItems, baselineItems }: { currentItems: AssetBreakdownItem[]; baselineItems: AssetBreakdownItem[] }) {
   const current = comparisonByLabel(currentItems);
   const baseline = comparisonByLabel(baselineItems);

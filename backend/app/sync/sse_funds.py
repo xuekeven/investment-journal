@@ -73,6 +73,13 @@ TARGETS = (
     ),
 )
 
+OTHER_QDII = TargetIndex(
+    family_id="other-qdii",
+    definition_id="other-qdii-benchmark",
+    official_names=(),
+    investment_scopes=("QDII",),
+)
+
 
 def sse_detail_url(fund_code: str, category: str | None = None) -> str:
     url = (
@@ -107,7 +114,9 @@ def fetch_sse_funds() -> list[dict[str, Any]]:
     return rows
 
 
-def classify(row: dict[str, Any]) -> TargetIndex | None:
+def classify(
+    row: dict[str, Any], qdii_catalog: dict[str, str] | None = None,
+) -> TargetIndex | None:
     index_name = str(row.get("INDEX_NAME") or "").strip()
     display_name = " ".join(
         str(row.get(key) or "")
@@ -119,6 +128,12 @@ def classify(row: dict[str, Any]) -> TargetIndex | None:
         if any(token in display_name for token in target.excluded_name_tokens):
             continue
         return target
+    code = str(row.get("FUND_CODE") or "").strip()
+    catalog_name = (qdii_catalog or {}).get(code, "")
+    if (
+        "QDII" in display_name.upper() or catalog_name
+    ) and "ETF" in f"{display_name} {catalog_name}".upper() and "LOF" not in catalog_name.upper():
+        return OTHER_QDII
     return None
 
 
@@ -200,6 +215,10 @@ def ensure_index_master_data(
             "id": "nasdaq-100", "name": "Nasdaq-100 Index", "short_name": "纳斯达克100",
             "region": "美国", "currency": "美元",
         },
+        {
+            "id": "other-qdii", "name": "其他QDII基金", "short_name": "其他QDII",
+            "region": "境外", "currency": "多币种",
+        },
     )
     for item in families:
         statement = insert(IndexFamily).values(
@@ -236,6 +255,12 @@ def ensure_index_master_data(
             "currency": "人民币", "index_code": "NDX", "benchmark_type": "价格指数",
             "fx_adjustment": "人民币折算；具体基金合同口径仍需逐只核验",
             "exact_benchmark": "纳斯达克100价格指数（人民币折算，待逐只合同核验）",
+        },
+        {
+            "id": "other-qdii-benchmark", "family_id": "other-qdii", "name": "其他QDII基金业绩比较基准",
+            "short_name": "其他QDII", "provider": None, "region": "境外",
+            "currency": "多币种", "index_code": None, "benchmark_type": "自定义业绩基准",
+            "exact_benchmark": "各基金跟踪指数或业绩比较基准以基金合同为准",
         },
     )
     for item in definitions:
@@ -290,10 +315,11 @@ def sync_rows(
     session: Session,
     rows: list[dict[str, Any]],
     collected_at: datetime,
+    qdii_catalog: dict[str, str] | None = None,
 ) -> int:
     synced = 0
     for row in rows:
-        target = classify(row)
+        target = classify(row, qdii_catalog)
         if target is None:
             continue
         ticker = str(row["FUND_CODE"])
@@ -406,11 +432,12 @@ def sync_target_fees(
     client: httpx.Client,
     rows: list[dict[str, Any]],
     collected_at: datetime,
+    qdii_catalog: dict[str, str] | None = None,
 ) -> tuple[int, list[str]]:
     synced = 0
     failures: list[str] = []
     for row in rows:
-        if classify(row) is None or not row.get("FUND_CODE"):
+        if classify(row, qdii_catalog) is None or not row.get("FUND_CODE"):
             continue
         code = str(row["FUND_CODE"])
         share_id = session.scalar(
@@ -438,18 +465,26 @@ def sync_target_fees(
 def run_sync(*, dry_run: bool = False) -> int:
     collected_at = datetime.now(UTC)
     rows = fetch_sse_funds()
+    from app.sync.qdii_catalog import fetch_qdii_catalog_names
+
+    try:
+        qdii_catalog = fetch_qdii_catalog_names()
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        logger.warning("CSRC QDII identity lookup unavailable: %s", exc)
+        qdii_catalog = {}
     with get_session_factory()() as session, httpx.Client(
         trust_env=False,
         timeout=httpx.Timeout(30, connect=10),
         headers={"User-Agent": SSE_USER_AGENT},
     ) as client:
         ensure_index_master_data(session, collected_at)
-        count = sync_rows(session, rows, collected_at)
+        count = sync_rows(session, rows, collected_at, qdii_catalog)
         fee_count, fee_failures = sync_target_fees(
             session,
             client,
             rows,
             collected_at,
+            qdii_catalog,
         )
         logger.info("SSE weekly fee sync updated %s shares", fee_count)
         for failure in fee_failures:

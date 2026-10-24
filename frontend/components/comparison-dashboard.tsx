@@ -18,7 +18,7 @@ import {
   VENUES,
 } from "@/lib/fund-list";
 import type { FundSortKey, SortDirection, VenueFilter } from "@/lib/fund-list";
-import { calculateRecurringInvestmentTotals } from "@/lib/fund-tag-values";
+import { calculateRecurringInvestmentTotals, prepareTaggedFundUpdate } from "@/lib/fund-tag-values";
 import type {
   DataFreshness,
   FundComparisonRow,
@@ -29,6 +29,7 @@ import type {
 import { CloseIcon, MarkIcon, SearchIcon } from "./icons";
 import { ComparisonView } from "./comparison-view";
 import { FundCards, FundTable } from "./fund-table";
+import { FundBlacklistDialog } from "./fund-blacklist-dialog";
 import { ShareClassHelpDialog } from "./share-class-help-dialog";
 import { SyncInfoDialog } from "./sync-info-dialog";
 import { FUND_TAG_META } from "./fund-tag-meta";
@@ -56,9 +57,11 @@ const EMPTY_FRESHNESS: DataFreshness = {
 const INDEX_ORDER: Record<string, number> = {
   "sp-500": 0,
   "nasdaq-100": 1,
-  "csi-500": 2,
+  "other-qdii": 2,
+  "csi-500": 3,
 };
 const FUND_TAG_ORDER: FundTag[] = ["favorite", "holding", "recurring"];
+const FUNDS_PER_PAGE = 50;
 const MOBILE_SORT_OPTIONS: Array<{ key: FundSortKey; label: string }> = [
   { key: "code", label: "代码" },
   { key: "name", label: "份额" },
@@ -195,6 +198,7 @@ export function ComparisonDashboard() {
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<FundSortKey | null>("return1y");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [page, setPage] = useState(1);
   const [funds, setFunds] = useState<FundComparisonRow[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -208,6 +212,7 @@ export function ComparisonDashboard() {
   const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [syncInfoOpen, setSyncInfoOpen] = useState(false);
   const [limitNotificationOpen, setLimitNotificationOpen] = useState(false);
+  const [blacklistOpen, setBlacklistOpen] = useState(false);
   const [shareClassHelpOpen, setShareClassHelpOpen] = useState(false);
   const [tagSavingCodes, setTagSavingCodes] = useState<string[]>([]);
   const [tagError, setTagError] = useState<string | null>(null);
@@ -216,6 +221,7 @@ export function ComparisonDashboard() {
   const [taggedFundsLoading, setTaggedFundsLoading] = useState(false);
   const [taggedFundsError, setTaggedFundsError] = useState<string | null>(null);
   const fundCache = useRef(new Map<string, CachedFunds>());
+  const resultsTop = useRef<HTMLDivElement | null>(null);
   const fundController = useRef<AbortController | null>(null);
   const fundRequestId = useRef(0);
   const comparisonController = useRef<AbortController | null>(null);
@@ -421,6 +427,25 @@ export function ComparisonDashboard() {
     () => sortFundRows(visibleFunds, sortKey, sortDirection),
     [sortDirection, sortKey, visibleFunds],
   );
+  const pageCount = Math.max(1, Math.ceil(sortedFunds.length / FUNDS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedFunds = useMemo(
+    () => sortedFunds.slice((currentPage - 1) * FUNDS_PER_PAGE, currentPage * FUNDS_PER_PAGE),
+    [currentPage, sortedFunds],
+  );
+  const pageNumbers = Array.from(
+    { length: Math.min(5, pageCount) },
+    (_, offset) => Math.min(Math.max(currentPage - 2, 1), Math.max(pageCount - 4, 1)) + offset,
+  );
+
+  function goToPage(nextPage: number) {
+    setPage(nextPage);
+    requestAnimationFrame(() => resultsTop.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
+  useEffect(() => {
+    queueMicrotask(() => setPage(1));
+  }, [activeIndex, venue, exchanges, shareClasses, currencies, subscriptionStatuses, taggedOnly, query, sortKey, sortDirection]);
 
   const selectedFunds = useMemo(
     () => funds.filter((fund) => selected.includes(fund.code)),
@@ -429,8 +454,9 @@ export function ComparisonDashboard() {
 
   function changeIndex(indexId: string) {
     if (indexId === activeIndex) return;
+    const nextVenue = indexId === "other-qdii" ? "场外" : "场内";
     const cached = fundCache.current.get(
-      fundCacheKey(indexId, "场内", []),
+      fundCacheKey(indexId, nextVenue, []),
     );
     setLoading(!cached);
     if (cached) {
@@ -438,7 +464,7 @@ export function ComparisonDashboard() {
       setDataFreshness(cached.dataFreshness);
     }
     setActiveIndex(indexId);
-    setVenue("场内");
+    setVenue(nextVenue);
     setExchanges([]);
     setShareClasses([]);
     setCurrencies([]);
@@ -493,6 +519,7 @@ export function ComparisonDashboard() {
     tags: FundTag[],
     holdingAmount: number | null,
     recurringAmount: number | null,
+    holdingCost: number | null,
   ) {
     const fund = funds.find((item) => item.code === code);
     if (!fund || tagSavingCodes.includes(code)) return false;
@@ -500,12 +527,14 @@ export function ComparisonDashboard() {
     const previousState: FundTagState = {
       tags: fund.tags,
       holdingAmount: fund.holdingAmount,
+      holdingCost: fund.holdingCost,
       recurringAmount: fund.recurringAmount,
     };
     const nextTags = FUND_TAG_ORDER.filter((item) => tags.includes(item));
     const nextState: FundTagState = {
       tags: nextTags,
       holdingAmount: nextTags.includes("holding") ? holdingAmount : null,
+      holdingCost: nextTags.includes("holding") ? holdingCost : null,
       recurringAmount: nextTags.includes("recurring") ? recurringAmount : null,
     };
     setTagError(null);
@@ -517,6 +546,7 @@ export function ComparisonDashboard() {
         nextTags,
         nextState.holdingAmount,
         nextState.recurringAmount,
+        nextState.holdingCost,
       );
       applyFundTags(code, response);
       return true;
@@ -529,23 +559,26 @@ export function ComparisonDashboard() {
     }
   }
 
-  async function saveTaggedFundAmounts(
-    tag: "holding" | "recurring",
-    updates: Array<{ fundCode: string; amount: number | null }>,
+  async function saveTaggedFundChanges(
+    tag: FundTag,
+    updates: Array<{ fundCode: string; amount: number | null; cost?: number | null; remove?: boolean }>,
   ) {
     const fundsByCode = new Map(taggedFunds.map((fund) => [fund.code, fund]));
     const codes = updates.map((update) => update.fundCode);
     setTagError(null);
     setTagSavingCodes((current) => [...new Set([...current, ...codes])]);
 
-    const results = await Promise.allSettled(updates.map(({ fundCode, amount }) => {
+    const results = await Promise.allSettled(updates.map((update) => {
+      const { fundCode } = update;
       const fund = fundsByCode.get(fundCode);
       if (!fund) return Promise.reject(new Error(`Fund ${fundCode} not found`));
+      const next = prepareTaggedFundUpdate(fund, tag, update);
       return updateFundTags(
         fundCode,
-        fund.tags,
-        tag === "holding" ? amount : fund.holdingAmount,
-        tag === "recurring" ? amount : fund.recurringAmount,
+        next.tags,
+        next.holdingAmount,
+        next.recurringAmount,
+        next.holdingCost,
       );
     }));
 
@@ -558,11 +591,11 @@ export function ComparisonDashboard() {
     setTaggedFunds((current) => current.map((fund) => {
       const state = savedStates.get(fund.code);
       return state ? { ...fund, ...state } : fund;
-    }));
+    }).filter((fund) => fund.tags.includes(tag)));
     setTagSavingCodes((current) => current.filter((code) => !codes.includes(code)));
 
     const saved = savedStates.size === updates.length;
-    if (!saved) setTagError("部分基金的持有或定投数据保存失败，请重试。");
+    if (!saved) setTagError("部分基金标签数据保存失败，请重试。");
     return saved;
   }
 
@@ -755,10 +788,18 @@ export function ComparisonDashboard() {
                 <button
                   className="topbar-info-button"
                   type="button"
-                  onClick={() => setLimitNotificationOpen(true)}
-                  aria-label="打开限额提醒"
+                  onClick={() => setBlacklistOpen(true)}
+                  aria-label="查看基金黑名单"
                 >
-                  限额提醒
+                  黑名单
+                </button>
+                <button
+                  className="topbar-info-button"
+                  type="button"
+                  onClick={() => setLimitNotificationOpen(true)}
+                  aria-label="打开消息提醒"
+                >
+                  消息提醒
                 </button>
                 <button
                   className="topbar-info-button"
@@ -947,7 +988,7 @@ export function ComparisonDashboard() {
           </div>
 
           {!loading && !error && (
-            <div className="fund-result-summary" aria-live="polite">
+            <div className="fund-result-summary" ref={resultsTop} aria-live="polite">
               <p className="fund-result-count">
                 共有 <strong>{visibleFunds.length}</strong> 条基金
               </p>
@@ -956,7 +997,7 @@ export function ComparisonDashboard() {
                 <span>{primaryFreshnessLabel}</span>
                 <strong>{formatSyncTime(primaryFreshness)}</strong>
               </p>
-              {venue === "场外" && qdiiPurchaseLimits.hasQdii && (
+              {venue === "场外" && activeIndex !== "other-qdii" && qdiiPurchaseLimits.hasQdii && (
                 <p className="fund-purchase-limit">
                   <span className="status-dot" />
                   <span className="fund-purchase-limit-copy">
@@ -1003,7 +1044,7 @@ export function ComparisonDashboard() {
           ) : (
             <>
               <FundTable
-                funds={sortedFunds}
+                funds={pagedFunds}
                 selected={selected}
                 onToggle={toggleFund}
                 onTagsSave={saveFundTags}
@@ -1014,13 +1055,33 @@ export function ComparisonDashboard() {
                 onOpenShareClassHelp={() => setShareClassHelpOpen(true)}
               />
               <FundCards
-                funds={sortedFunds}
+                funds={pagedFunds}
                 selected={selected}
                 onToggle={toggleFund}
                 onTagsSave={saveFundTags}
                 tagSavingCodes={tagSavingCodes}
                 onOpenShareClassHelp={() => setShareClassHelpOpen(true)}
               />
+              {pageCount > 1 && (
+                <nav className="fund-pagination" aria-label="基金列表分页">
+                  <span>第 {currentPage} / {pageCount} 页</span>
+                  <div className="fund-pagination-buttons">
+                    <button type="button" disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)}>上一页</button>
+                    {pageNumbers.map((pageNumber) => (
+                      <button
+                        key={pageNumber}
+                        type="button"
+                        className={pageNumber === currentPage ? "active" : ""}
+                        aria-current={pageNumber === currentPage ? "page" : undefined}
+                        onClick={() => goToPage(pageNumber)}
+                      >
+                        {pageNumber}
+                      </button>
+                    ))}
+                    <button type="button" disabled={currentPage === pageCount} onClick={() => goToPage(currentPage + 1)}>下一页</button>
+                  </div>
+                </nav>
+              )}
             </>
           )}
 
@@ -1072,7 +1133,7 @@ export function ComparisonDashboard() {
           error={taggedFundsError}
           onClose={closeTaggedFunds}
           onRetry={() => void openTaggedFunds(taggedDialogTag)}
-          onAmountsSave={saveTaggedFundAmounts}
+          onChangesSave={saveTaggedFundChanges}
         />
       )}
       {syncInfoOpen && (
@@ -1081,6 +1142,7 @@ export function ComparisonDashboard() {
       {limitNotificationOpen && (
         <LimitNotificationDialog onClose={() => setLimitNotificationOpen(false)} />
       )}
+      {blacklistOpen && <FundBlacklistDialog onClose={() => setBlacklistOpen(false)} />}
       {shareClassHelpOpen && (
         <ShareClassHelpDialog onClose={closeShareClassHelp} />
       )}

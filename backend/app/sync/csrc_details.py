@@ -26,11 +26,17 @@ def main() -> None:
         action="append",
         help="sync only the product containing this six-digit share code; may repeat",
     )
+    parser.add_argument(
+        "--family",
+        choices=("sp-500", "nasdaq-100", "other-qdii", "csi-500"),
+        help="sync only products in this fund category",
+    )
     args = parser.parse_args()
     stats = run_details_sync(
         dry_run=args.dry_run,
         limit=args.limit,
         codes=tuple(args.code or ()),
+        family_id=args.family,
     )
     action = "validated" if args.dry_run else "synced"
     print(

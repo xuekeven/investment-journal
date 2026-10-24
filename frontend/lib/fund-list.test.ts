@@ -13,8 +13,11 @@ import {
 } from "./fund-list.ts";
 import type { FundComparisonRow } from "./types.ts";
 import {
+  calculateHoldingProfitLoss,
   calculateRecurringInvestmentTotals,
   formatFundTagLabel,
+  holdingCurrentPrice,
+  prepareTaggedFundUpdate,
 } from "./fund-tag-values.ts";
 
 function fund(overrides: Partial<FundComparisonRow>): FundComparisonRow {
@@ -59,6 +62,7 @@ function fund(overrides: Partial<FundComparisonRow>): FundComparisonRow {
     note: null,
     tags: [],
     holdingAmount: null,
+    holdingCost: null,
     recurringAmount: null,
     ...overrides,
   };
@@ -364,6 +368,7 @@ test("formats holding and recurring values while preserving explicit zero", () =
   });
 
   assert.equal(formatFundTagLabel(cnyFund, "holding"), "持有0份额");
+  assert.equal(formatFundTagLabel(fund({ holdingAmount: 1031.81, holdingCost: 1.25 }), "holding"), "持有1,031.81份额，成本1.25");
   assert.equal(formatFundTagLabel(cnyFund, "recurring"), "定投0人民币");
   assert.equal(formatFundTagLabel(usdFund, "recurring"), "定投3美元");
   assert.equal(formatFundTagLabel(fund({}), "holding"), "持有");
@@ -372,6 +377,38 @@ test("formats holding and recurring values while preserving explicit zero", () =
     usd: 3,
     hasCny: true,
     hasUsd: true,
+  });
+});
+
+test("holding profit uses the venue's current price and needs complete data", () => {
+  const exchangeFund = fund({ closePrice: 1.02, nav: 0.99, holdingAmount: 2250, holdingCost: 1 });
+  const offExchangeFund = fund({ tradingVenue: "场外", closePrice: 1.02, nav: 0.89, holdingAmount: 400, holdingCost: 1 });
+  assert.equal(holdingCurrentPrice(exchangeFund), 1.02);
+  assert.equal(calculateHoldingProfitLoss(exchangeFund), 45);
+  assert.equal(holdingCurrentPrice(offExchangeFund), 0.89);
+  assert.equal(calculateHoldingProfitLoss(offExchangeFund), -44);
+  assert.equal(calculateHoldingProfitLoss(fund({ nav: null, tradingVenue: "场外", holdingAmount: 1, holdingCost: 1 })), null);
+  assert.equal(calculateHoldingProfitLoss(fund({ holdingAmount: 1, holdingCost: null })), null);
+});
+
+test("removing one fund tag preserves the other tags and their values", () => {
+  const tagged = fund({
+    tags: ["favorite", "holding", "recurring"],
+    holdingAmount: 1031.81,
+    holdingCost: 1.25,
+    recurringAmount: 200,
+  });
+  assert.deepEqual(prepareTaggedFundUpdate(tagged, "favorite", { amount: null, remove: true }), {
+    tags: ["holding", "recurring"], holdingAmount: 1031.81, holdingCost: 1.25, recurringAmount: 200,
+  });
+  assert.deepEqual(prepareTaggedFundUpdate(tagged, "holding", { amount: null, remove: true }), {
+    tags: ["favorite", "recurring"], holdingAmount: null, holdingCost: null, recurringAmount: 200,
+  });
+  assert.deepEqual(prepareTaggedFundUpdate(tagged, "recurring", { amount: null, remove: true }), {
+    tags: ["favorite", "holding"], holdingAmount: 1031.81, holdingCost: 1.25, recurringAmount: null,
+  });
+  assert.deepEqual(prepareTaggedFundUpdate(tagged, "holding", { amount: 1000, cost: 1.4 }), {
+    tags: ["favorite", "holding", "recurring"], holdingAmount: 1000, holdingCost: 1.4, recurringAmount: 200,
   });
 });
 

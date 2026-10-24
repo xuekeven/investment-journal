@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -15,21 +16,25 @@ from app.database import get_session_factory
 from app.database_models import (
     FundProduct,
     FundShareClass,
+    FundListing,
+    IndexDefinition,
     LimitNotificationOutbox,
     LimitNotificationSubscription,
+    MarketQuote,
     SalesLimitHistory,
     UserFundTag,
 )
-from app.models import LimitNotificationConfig, LimitNotificationConfigUpdate
+from app.models import LimitNotificationConfig, LimitNotificationConfigUpdate, LimitNotificationTestRequest
 
 
 SINGLE_USER_ID = "default"
-INDEX_SCOPES = {"sp-500", "nasdaq-100", "csi-500"}
+INDEX_SCOPES = {"sp-500", "nasdaq-100", "other-qdii", "csi-500"}
 TAG_SCOPES = {"favorite", "holding", "recurring"}
 STATUS_LABELS = {"open": "开放申购", "limited": "限额申购", "suspended": "暂停申购"}
 SCOPE_LABELS = {
     "sp-500": "标普500",
     "nasdaq-100": "纳斯达克100",
+    "other-qdii": "其他QDII",
     "csi-500": "中证500",
     "favorite": "收藏标签",
     "holding": "持有标签",
@@ -51,6 +56,9 @@ def _config_response(
         enabled=row.enabled,
         scope=row.scope_value,
         fund_type=row.fund_type,
+        deviation_enabled=row.deviation_enabled,
+        deviation_threshold=row.deviation_threshold,
+        deviation_direction=row.deviation_direction,
         wework_user_id=row.wework_user_id,
         wework_app=row.wework_app,
         relay_configured=bool(settings.wework_relay_api_key),
@@ -80,12 +88,12 @@ def get_limit_notification_config(
 
 
 def save_limit_notification_config(
-    session: Session, payload: LimitNotificationConfigUpdate
+    session: Session, payload: LimitNotificationConfigUpdate, *, commit: bool = True
 ) -> LimitNotificationConfig:
     scope_type = "index" if payload.scope in INDEX_SCOPES else "tag"
     if payload.scope not in INDEX_SCOPES | TAG_SCOPES:
         raise ValueError("不支持的订阅范围")
-    if payload.enabled and not payload.wework_user_id.strip():
+    if (payload.enabled or payload.deviation_enabled) and not payload.wework_user_id.strip():
         raise ValueError("开启提醒时必须填写企业微信 userid")
     row = session.scalar(
         select(LimitNotificationSubscription).where(
@@ -110,11 +118,47 @@ def save_limit_notification_config(
         row = LimitNotificationSubscription(user_id=SINGLE_USER_ID, **values)
         session.add(row)
     else:
+        if (not payload.enabled or not payload.deviation_enabled or row.deviation_threshold != payload.deviation_threshold or row.deviation_direction != payload.deviation_direction):
+            event_types = []
+            if not payload.enabled:
+                event_types = ["limit_decrease", "limit_increase", "suspended", "resumed", "first_seen"]
+            if not payload.deviation_enabled or row.deviation_threshold != payload.deviation_threshold or row.deviation_direction != payload.deviation_direction:
+                event_types.append("deviation")
+            session.execute(delete(LimitNotificationOutbox).where(
+                LimitNotificationOutbox.subscription_id == row.id,
+                LimitNotificationOutbox.status.in_(("pending", "failed")),
+                LimitNotificationOutbox.event_type.in_(event_types),
+            ))
         for key, value in values.items():
             setattr(row, key, value)
-    session.commit()
-    session.refresh(row)
+    if commit:
+        session.commit()
+        session.refresh(row)
+    else:
+        session.flush()
     return _config_response(row)
+
+
+def list_limit_notification_configs(session: Session) -> list[LimitNotificationConfig]:
+    rows = session.scalars(select(LimitNotificationSubscription).where(
+        LimitNotificationSubscription.user_id == SINGLE_USER_ID,
+    ))
+    by_scope = {row.scope_value: row for row in rows}
+    return [_config_response(by_scope.get(scope), scope) for scope in SCOPE_LABELS]
+
+
+def save_limit_notification_configs(
+    session: Session, payloads: list[LimitNotificationConfigUpdate]
+) -> list[LimitNotificationConfig]:
+    if len(payloads) != len(SCOPE_LABELS) or {item.scope for item in payloads} != set(SCOPE_LABELS):
+        raise ValueError("必须提交全部订阅范围的配置")
+    recipients = {(item.wework_user_id.strip(), item.wework_app.strip()) for item in payloads}
+    if len(recipients) != 1:
+        raise ValueError("所有提醒须使用同一企微接收人和发送应用")
+    for item in payloads:
+        save_limit_notification_config(session, item, commit=False)
+    session.commit()
+    return list_limit_notification_configs(session)
 
 
 def _state(record: SalesLimitHistory | None) -> dict[str, Any] | None:
@@ -164,18 +208,19 @@ def _subscribed(
     share_id: int,
 ) -> tuple[FundShareClass, FundProduct] | None:
     row = session.execute(
-        select(FundShareClass, FundProduct)
+        select(FundShareClass, FundProduct, IndexDefinition.family_id)
         .join(FundProduct, FundProduct.id == FundShareClass.fund_product_id)
+        .join(IndexDefinition, IndexDefinition.id == FundProduct.exact_benchmark_id)
         .where(FundShareClass.id == share_id)
     ).one_or_none()
     if row is None:
         return None
-    share, product = row
+    share, product, family_id = row
     venue = "on_exchange" if product.trading_venue == "仅场内" else "off_exchange"
-    if subscription.fund_type != "all" and subscription.fund_type != venue:
+    if venue != "off_exchange" or subscription.fund_type not in ("off_exchange", "all"):
         return None
     if subscription.scope_type == "index":
-        if product.exact_benchmark_id != f"{subscription.scope_value}-price-cny":
+        if family_id != subscription.scope_value:
             return None
     else:
         tagged = session.scalar(
@@ -264,7 +309,11 @@ def _format_amount(state: dict[str, Any] | None) -> str:
 
 
 def format_limit_message(events: list[LimitNotificationOutbox]) -> str:
-    lines = ["📣 基金申购限额变动", f"共 {len(events)} 项", ""]
+    types = {event.event_type for event in events}
+    title = "基金偏离提醒" if types == {"deviation"} else (
+        "基金消息提醒" if "deviation" in types else "基金申购限额变动"
+    )
+    lines = [f"📣 {title}", f"共 {len(events)} 项", ""]
     icons = {
         "limit_decrease": "🔻",
         "limit_increase": "🔺",
@@ -275,6 +324,13 @@ def format_limit_message(events: list[LimitNotificationOutbox]) -> str:
     for event in events[:20]:
         previous = event.previous_state
         current = event.current_state
+        if event.event_type == "deviation":
+            lines.append(f"📈 {event.fund_code} {event.fund_name}")
+            direction = "低于" if current.get("direction") == "below" else "高于"
+            lines.append(f"偏离率：{current['deviation']:.2f}%（{direction} {current['threshold']:.2f}% 提醒）")
+            lines.append(f"行情日期：{current['quote_date']}")
+            lines.append("")
+            continue
         lines.append(f"{icons[event.event_type]} {event.fund_code} {event.fund_name}")
         if previous is not None and previous.get("amount") != current.get("amount"):
             lines.append(f"限额：{_format_amount(previous)} → {_format_amount(current)}")
@@ -309,17 +365,117 @@ def _send_text(*, app: str, recipient: str, content: str, idempotency_key: str) 
     response.raise_for_status()
 
 
-def send_test_limit_notification(payload: LimitNotificationConfigUpdate) -> None:
-    scope_label = SCOPE_LABELS[payload.scope]
+def format_test_notification(payload: LimitNotificationTestRequest, *, now: datetime | None = None) -> str:
+    local_now = (now or datetime.now(UTC)).astimezone(ZoneInfo("Asia/Shanghai"))
+    if payload.kind == "deviation":
+        event = SimpleNamespace(
+            event_type="deviation",
+            fund_code="000000",
+            fund_name="测试基金（示例）",
+            previous_state=None,
+            current_state={
+                "deviation": float(payload.deviation_threshold),
+                "threshold": float(payload.deviation_threshold),
+                "direction": payload.deviation_direction,
+                "quote_date": local_now.date().isoformat(),
+            },
+            effective_from=None,
+        )
+        venue = "场内基金"
+    else:
+        event = SimpleNamespace(
+            event_type="suspended",
+            fund_code="000000",
+            fund_name="测试基金（示例）",
+            previous_state=_new_state("limited", Decimal("100"), "人民币"),
+            current_state=_new_state("suspended", None, "人民币"),
+            effective_from=local_now,
+        )
+        venue = "场外基金"
+    return f"🧪 测试消息｜{SCOPE_LABELS[payload.scope]} · {venue}\n{format_limit_message([event])}"
+
+
+def send_test_limit_notification(payload: LimitNotificationTestRequest) -> None:
     _send_text(
         app=payload.wework_app.strip() or "main",
         recipient=payload.wework_user_id.strip(),
-        content=(
-            "📣 投资札记限额变动提醒\n"
-            f"测试订阅【{scope_label}】消息发送成功。"
-        ),
+        content=format_test_notification(payload),
         idempotency_key=f"investment-journal:test:{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}",
     )
+
+
+def deviation_reached(value: float, threshold: Decimal, direction: str) -> bool:
+    limit = float(threshold)
+    return value <= limit if direction == "below" else value >= limit
+
+
+def enqueue_deviation_notifications(session: Session) -> int:
+    """Queue current exchange deviations after a detail sync, once per quote date."""
+    from app.repository import PostgresFundRepository
+
+    subscriptions = list(session.scalars(select(LimitNotificationSubscription).where(
+        LimitNotificationSubscription.user_id == SINGLE_USER_ID,
+        LimitNotificationSubscription.deviation_enabled.is_(True),
+    ).order_by(LimitNotificationSubscription.id)))
+    if not subscriptions:
+        return 0
+    funds = PostgresFundRepository().list_funds()
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    count = 0
+    for fund in funds:
+        if fund.trading_venue != "场内" or fund.estimated_deviation is None or fund.close_date is None:
+            continue
+        if not 0 <= (today - fund.close_date).days <= 7:
+            continue
+        share_id = int(fund.id.removeprefix("share-"))
+        matching = [subscription for subscription in subscriptions if (
+            fund.index_id == subscription.scope_value if subscription.scope_type == "index"
+            else subscription.scope_value in fund.tags
+        ) and deviation_reached(fund.estimated_deviation, subscription.deviation_threshold, subscription.deviation_direction)]
+        if not matching:
+            continue
+        quote_collected_at = session.scalar(
+            select(func.max(MarketQuote.collected_at))
+            .join(FundListing, FundListing.id == MarketQuote.fund_listing_id)
+            .where(FundListing.fund_share_class_id == share_id, MarketQuote.trade_date == fund.close_date)
+        )
+        if quote_collected_at is None:
+            continue
+        for subscription in matching:
+            # Only quotes collected after the settings were saved can create a new alert.
+            if quote_collected_at <= subscription.updated_at:
+                continue
+            raw_key = f"deviation|{subscription.id}|{share_id}|{fund.close_date.isoformat()}"
+            event_key = sha256(raw_key.encode("utf-8")).hexdigest()
+            if session.scalar(select(LimitNotificationOutbox.id).where(LimitNotificationOutbox.event_key == event_key)):
+                break
+            session.add(LimitNotificationOutbox(
+                subscription_id=subscription.id,
+                fund_share_class_id=share_id,
+                event_key=event_key,
+                event_type="deviation",
+                fund_code=fund.code,
+                fund_name=fund.display_name,
+                previous_state=None,
+                current_state={
+                    "deviation": fund.estimated_deviation,
+                    "threshold": float(subscription.deviation_threshold),
+                    "direction": subscription.deviation_direction,
+                    "quote_date": fund.close_date.isoformat(),
+                },
+                effective_from=datetime.combine(fund.close_date, datetime.min.time(), tzinfo=ZoneInfo("Asia/Shanghai")),
+                detected_at=datetime.now(UTC),
+            ))
+            count += 1
+            break
+    session.commit()
+    return count
+
+
+def dispatch_pending_notifications() -> int:
+    with get_session_factory()() as session:
+        enqueue_deviation_notifications(session)
+    return dispatch_pending_limit_notifications()
 
 
 def _dispatch_subscription(
@@ -410,7 +566,7 @@ def dispatch_pending_limit_notifications() -> int:
                 select(LimitNotificationSubscription)
                 .where(
                     LimitNotificationSubscription.user_id == SINGLE_USER_ID,
-                    LimitNotificationSubscription.enabled.is_(True),
+                    (LimitNotificationSubscription.enabled.is_(True) | LimitNotificationSubscription.deviation_enabled.is_(True)),
                 )
                 .order_by(LimitNotificationSubscription.id)
             )

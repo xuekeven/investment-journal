@@ -175,10 +175,15 @@ def test_classifies_target_off_exchange_funds_and_excludes_variants() -> None:
     assert classify_product("嘉实中证500ETF联接")[0].family_id == "csi-500"
     assert classify_product("南方纳斯达克100指数发起（QDII）")[0].family_id == "nasdaq-100"
     assert classify_product("天弘标普500发起（QDII-FOF）")[0].family_id == "sp-500"
-    assert classify_product("大成标普500等权重指数(QDII)") is None
+    assert classify_product("大成标普500等权重指数(QDII)")[0].family_id == "other-qdii"
+    assert classify_product("易方达恒生科技指数(QDII-LOF)") is None
+    assert classify_product("华夏全球股票(QDII)") == (
+        csrc_funds.OTHER_QDII, "普通开放式基金"
+    )
     assert classify_product("华夏中证500指数增强") is None
     assert classify_product("博时纳斯达克100ETF") is None
     assert classify_product("鹏华中证500指数（LOF）") is None
+    assert classify_product("某某全球股票上市开放式证券投资基金（QDII）") is None
     assert is_exchange_traded_summary(
         "上市交易所及上市日期上海证券交易所2023年03月20日"
         "基金类型股票型运作方式交易型开放式开放频率每个开放日"
@@ -290,6 +295,8 @@ def test_discovers_share_identity_and_filters_product_level_nav_rows() -> None:
         "建信纳斯达克100指数(QDII)"
     )
     assert share_identity("某基金美元现汇A") == ("A", "美元", "现汇")
+    assert share_identity("鹏华全球中短债债券C类美元现汇（QDII）") == ("C", "美元", "现汇")
+    assert share_identity("某基金美元现汇（QDII）") == (None, "美元", "现汇")
     assert share_identity("某基金美汇") == (None, "美元", "现汇")
     assert share_identity("某基金美钞") == (None, "美元", "现钞")
 
@@ -1334,7 +1341,7 @@ def test_restore_subscription_with_new_limits_stays_limited_by_share_class() -> 
     ]
 
 
-def test_channel_limits_use_distributor_amount_and_actual_start_date() -> None:
+def test_channel_limits_use_direct_amount_and_actual_start_date() -> None:
     shares = {
         share.code: share
         for share in (
@@ -1362,8 +1369,38 @@ def test_channel_limits_use_distributor_amount_and_actual_start_date() -> None:
         (state.code, state.limit_amount, state.effective_date, state.channel)
         for state in states
     ] == [
-        ("000834", Decimal("10"), date(2026, 6, 4), "全部渠道"),
-        ("008971", Decimal("10"), date(2026, 6, 4), "全部渠道"),
+        ("000834", Decimal("100"), date(2026, 6, 4), "全部渠道"),
+        ("008971", Decimal("100"), date(2026, 6, 4), "全部渠道"),
+    ]
+
+
+def test_wanjia_channel_limits_use_direct_amount_across_pdf_page_break() -> None:
+    shares = {
+        share.code: share
+        for share in (
+            SummaryShare("019441", "万家纳斯达克100指数发起式A", "A", "人民币", None),
+            SummaryShare("019442", "万家纳斯达克100指数发起式C", "C", "人民币", None),
+        )
+    }
+    states = parse_subscription_announcement(
+        "万家纳斯达克100指数发起式（QDII）调整申购限额公告",
+        """调整大额申购起始日 2026年10月21日
+下属分级基金的交易代码 019441 019442
+下属分级基金的限制申购金额（单位：人民币元） 5.00 5.00
+自2026年10月21日起，万家纳斯达克100指数发起式（QDII）A类份额和C类
+份额代销渠道单日单个基金账户单笔或多笔申购（含定期定额投资）累计金额限
+
+制调整为5元（不含5元）（A类、C类份额不合并计算）；直销渠道单日单个基金
+账户单笔或多笔申购（含定期定额投资）累计金额限制仍为100元（不含100元）
+（A类、C类份额不合并计算）。
+""",
+        shares,
+        "https://example.test/1595894.pdf",
+    )
+
+    assert [(state.code, state.limit_amount) for state in states] == [
+        ("019441", Decimal("100")),
+        ("019442", Decimal("100")),
     ]
 
 

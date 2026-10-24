@@ -28,6 +28,14 @@ INDEX_ROWS = [
         "currency": "美元",
         "exact_benchmark": "待按产品合同区分价格、总收益及人民币折算口径",
     },
+    {
+        "id": "other-qdii",
+        "name": "其他QDII基金",
+        "short_name": "其他QDII",
+        "region": "境外",
+        "currency": "多币种",
+        "exact_benchmark": "各基金跟踪指数或业绩比较基准以基金合同为准",
+    },
 ]
 
 

@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_session_factory
+from app.limit_notifications import dispatch_pending_notifications
 from app.database_models import (
     CalculatedMetric,
     FundListing,
@@ -350,9 +351,14 @@ def select_quote_rows(
 
 
 def run_sync(
-    *, trade_date: date | None = None, dry_run: bool = False
+    *, trade_date: date | None = None, dry_run: bool = False,
+    family_id: str | None = None,
 ) -> SzseDetailStats:
-    rows, list_snapshot_date = fetch_szse_funds()
+    try:
+        rows, list_snapshot_date = fetch_szse_funds()
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        logger.warning("SZSE ETF list unavailable; using stored listings: %s", exc)
+        rows, list_snapshot_date = [], datetime.now(ASIA_SHANGHAI).date()
     scale_by_ticker = {row["sys_key"]: row for row in rows}
     collected_at = datetime.now(UTC)
     headers = {"Referer": SZSE_SOURCE_URL, "User-Agent": "investment-journal/0.1"}
@@ -366,7 +372,7 @@ def run_sync(
         headers=headers,
         transport=transport,
     ) as client:
-        targets = session.execute(
+        statement = (
             select(
                 FundListing,
                 FundShareClass.id.label("share_id"),
@@ -383,16 +389,27 @@ def run_sync(
                 FundProduct.status == "active",
             )
             .order_by(FundListing.ticker)
-        ).all()
+        )
+        if family_id is not None:
+            statement = statement.where(IndexDefinition.family_id == family_id)
+        targets = session.execute(statement).all()
         if not targets:
             raise RuntimeError("No active target SZSE listings found; run script C first")
 
         for listing, share_id, product_id, index_definition_id in targets:
             ticker = listing.ticker
             try:
-                quote_history = fetch_quote_history(client, ticker)
-                quote_rows = select_quote_rows(quote_history, trade_date)
-                szse_nav_records, _ = fetch_nav_records(client, ticker)
+                try:
+                    quote_history = fetch_quote_history(client, ticker)
+                    quote_rows = select_quote_rows(quote_history, trade_date)
+                except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                    logger.warning("SZSE quote unavailable for %s: %s", ticker, exc)
+                    quote_rows = []
+                try:
+                    szse_nav_records, _ = fetch_nav_records(client, ticker)
+                except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                    logger.warning("SZSE NAV unavailable for %s: %s", ticker, exc)
+                    szse_nav_records = []
                 eid_nav_records, nav_source_url = fetch_eid_nav_records(
                     client, ticker, list_snapshot_date
                 )
@@ -458,8 +475,14 @@ def main() -> None:
     )
     parser.add_argument("--date", type=date.fromisoformat, help="trade date in YYYY-MM-DD")
     parser.add_argument("--dry-run", action="store_true", help="validate without committing")
+    parser.add_argument("--family", choices=("sp-500", "nasdaq-100", "other-qdii", "csi-500"))
     args = parser.parse_args()
-    stats = run_sync(trade_date=args.date, dry_run=args.dry_run)
+    stats = run_sync(trade_date=args.date, dry_run=args.dry_run, family_id=args.family)
+    if not args.dry_run:
+        try:
+            dispatch_pending_notifications()
+        except Exception as exc:
+            logging.warning("message notification dispatch failed: %s", exc)
     action = "validated" if args.dry_run else "synced"
     print(
         f"SZSE target ETF details {action}: {stats.funds} funds, {stats.quotes} quotes, "

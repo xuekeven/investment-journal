@@ -154,7 +154,7 @@ class FundProduct(Base, TimestampMixin, ProvenanceMixin):
 
     __table_args__ = (
         CheckConstraint(
-            "product_structure IN ('ETF', '普通开放式指数基金', 'ETF联接基金')",
+            "product_structure IN ('ETF', '普通开放式指数基金', 'ETF联接基金', '普通开放式基金', 'LOF')",
             name="ck_fund_product_structure",
         ),
         CheckConstraint(
@@ -162,7 +162,7 @@ class FundProduct(Base, TimestampMixin, ProvenanceMixin):
             name="ck_fund_product_trading_venue",
         ),
         CheckConstraint(
-            "tracking_method IN ('被动指数', '指数增强')",
+            "tracking_method IN ('被动指数', '指数增强', '主动管理')",
             name="ck_fund_product_tracking_method",
         ),
         CheckConstraint(
@@ -200,6 +200,25 @@ class FundShareClass(Base, TimestampMixin, ProvenanceMixin):
     )
 
 
+class FundBlacklistEntry(Base):
+    __tablename__ = "fund_blacklist_entry"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    entry_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    value: Mapped[str] = mapped_column(String(200), nullable=False)
+    manager_name: Mapped[str] = mapped_column(String(200), nullable=False, server_default=text("''"))
+    fund_name: Mapped[str] = mapped_column(String(200), nullable=False, server_default=text("''"))
+    reason: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("entry_type IN ('company', 'code')", name="ck_fund_blacklist_entry_type"),
+        UniqueConstraint("user_id", "entry_type", "value", "manager_name", name="uq_fund_blacklist_entry_identity"),
+        Index("ix_fund_blacklist_entry_order", "user_id", "entry_type", "sort_order"),
+    )
+
+
 class UserFundTag(Base, TimestampMixin):
     __tablename__ = "user_fund_tag"
 
@@ -210,6 +229,7 @@ class UserFundTag(Base, TimestampMixin):
     )
     tag_type: Mapped[str] = mapped_column(String(24), nullable=False)
     amount: Mapped[Decimal | None] = mapped_column(Numeric(24, 6), nullable=True)
+    cost: Mapped[Decimal | None] = mapped_column(Numeric(24, 6), nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -217,6 +237,7 @@ class UserFundTag(Base, TimestampMixin):
             name="ck_user_fund_tag_type",
         ),
         CheckConstraint("amount IS NULL OR amount >= 0", name="ck_user_fund_tag_amount"),
+        CheckConstraint("cost IS NULL OR cost >= 0", name="ck_user_fund_tag_cost"),
         UniqueConstraint(
             "user_id",
             "fund_share_class_id",
@@ -237,6 +258,9 @@ class LimitNotificationSubscription(Base, TimestampMixin):
     scope_type: Mapped[str] = mapped_column(String(16), nullable=False)
     scope_value: Mapped[str] = mapped_column(String(64), nullable=False)
     fund_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    deviation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    deviation_threshold: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False, server_default=text("0"))
+    deviation_direction: Mapped[str] = mapped_column(String(8), nullable=False, server_default=text("'above'"))
     notify_limit_decrease: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     notify_limit_increase: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     notify_suspended: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
@@ -250,6 +274,7 @@ class LimitNotificationSubscription(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint("scope_type IN ('index', 'tag')", name="ck_limit_notification_scope_type"),
         CheckConstraint("fund_type IN ('on_exchange', 'off_exchange', 'all')", name="ck_limit_notification_fund_type"),
+        CheckConstraint("deviation_direction IN ('above', 'below')", name="ck_limit_notification_deviation_direction"),
         UniqueConstraint(
             "user_id", "scope_type", "scope_value",
             name="uq_limit_notification_subscription_scope",

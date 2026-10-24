@@ -46,18 +46,19 @@ run_manager install
 [[ "$(grep -c 'app\.sync\.szse_funds' "${FAKE_CRONTAB_STATE}")" == "1" ]]
 [[ "$(grep -c 'app\.sync\.szse_details' "${FAKE_CRONTAB_STATE}")" == "1" ]]
 [[ "$(grep -c 'app\.sync\.csrc_funds' "${FAKE_CRONTAB_STATE}")" == "1" ]]
-[[ "$(grep -c 'app\.sync\.csrc_details' "${FAKE_CRONTAB_STATE}")" == "1" ]]
+[[ "$(grep -c 'app\.sync\.csrc_details' "${FAKE_CRONTAB_STATE}")" == "2" ]]
 if grep -q 'app\.sync\.szse_quotes' "${FAKE_CRONTAB_STATE}"; then
   echo "Legacy SZSE quote job was not removed" >&2
   exit 1
 fi
-grep -q '^0 22 \* \* 1-5 .*app\.sync\.sse_details' "${FAKE_CRONTAB_STATE}"
+grep -q '^5 22 \* \* 1-5 .*app\.sync\.sse_details' "${FAKE_CRONTAB_STATE}"
 grep -q '^0 9 \* \* 1 .*app\.sync\.szse_funds' "${FAKE_CRONTAB_STATE}"
 grep -q '^0 22 \* \* 1-5 .*app\.sync\.szse_details' "${FAKE_CRONTAB_STATE}"
 grep -q '^0 9 1 \* \* .*app\.sync\.csrc_funds' "${FAKE_CRONTAB_STATE}"
-grep -q '^0 9,22 \* \* 1-5 .*app\.sync\.csrc_details' "${FAKE_CRONTAB_STATE}"
-[[ "$(grep -c 'flock -w 14400 .*backend/\.sync\.lock' "${FAKE_CRONTAB_STATE}")" == "6" ]]
-[[ "$(grep -c 'IFC_SYNC_METHOD=scheduled' "${FAKE_CRONTAB_STATE}")" == "6" ]]
+grep -q '^0 9 \* \* 1-5 .*app\.sync\.csrc_details' "${FAKE_CRONTAB_STATE}"
+grep -q '^10 22 \* \* 1-5 .*app\.sync\.csrc_details' "${FAKE_CRONTAB_STATE}"
+[[ "$(grep -c 'flock -w 14400 .*backend/\.sync\.lock' "${FAKE_CRONTAB_STATE}")" == "7" ]]
+[[ "$(grep -c 'IFC_SYNC_METHOD=scheduled' "${FAKE_CRONTAB_STATE}")" == "7" ]]
 grep -q '/usr/local/bin/unrelated-backup' "${FAKE_CRONTAB_STATE}"
 
 run_manager remove

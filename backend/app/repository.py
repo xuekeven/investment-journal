@@ -299,6 +299,7 @@ class FundRepository(ABC):
         tags: list[FundTagType],
         holding_amount: float | None = None,
         recurring_amount: float | None = None,
+        holding_cost: float | None = None,
     ) -> FundTagState | None: ...
 
     @abstractmethod
@@ -459,12 +460,16 @@ class SampleFundRepository(FundRepository):
         tags: list[FundTagType],
         holding_amount: float | None = None,
         recurring_amount: float | None = None,
+        holding_cost: float | None = None,
     ) -> FundTagState | None:
         normalized = sorted(set(tags), key=FUND_TAG_ORDER.__getitem__)
         state = FundTagState(
             tags=normalized,
             holding_amount=(
                 holding_amount if FundTagType.HOLDING in normalized else None
+            ),
+            holding_cost=(
+                holding_cost if FundTagType.HOLDING in normalized else None
             ),
             recurring_amount=(
                 recurring_amount if FundTagType.RECURRING in normalized else None
@@ -839,6 +844,7 @@ class PostgresFundRepository(FundRepository):
                         (IndexFamily.id == "csi-500", 1),
                         (IndexFamily.id == "sp-500", 2),
                         (IndexFamily.id == "nasdaq-100", 3),
+                        (IndexFamily.id == "other-qdii", 4),
                         else_=99,
                     )
                 )
@@ -1044,6 +1050,7 @@ class PostgresFundRepository(FundRepository):
         tags: list[FundTagType],
         holding_amount: float | None = None,
         recurring_amount: float | None = None,
+        holding_cost: float | None = None,
     ) -> FundTagState | None:
         normalized = sorted(set(tags), key=FUND_TAG_ORDER.__getitem__)
         with self._session_factory() as session:
@@ -1077,6 +1084,7 @@ class PostgresFundRepository(FundRepository):
                         else recurring_amount if tag == FundTagType.RECURRING
                         else None
                     ),
+                    cost=holding_cost if tag == FundTagType.HOLDING else None,
                 )
                 for tag in normalized
             )
@@ -1085,6 +1093,9 @@ class PostgresFundRepository(FundRepository):
                 tags=normalized,
                 holding_amount=(
                     holding_amount if FundTagType.HOLDING in normalized else None
+                ),
+                holding_cost=(
+                    holding_cost if FundTagType.HOLDING in normalized else None
                 ),
                 recurring_amount=(
                     recurring_amount if FundTagType.RECURRING in normalized else None
@@ -1856,23 +1867,26 @@ class PostgresFundRepository(FundRepository):
                 UserFundTag.fund_share_class_id,
                 UserFundTag.tag_type,
                 UserFundTag.amount,
+                UserFundTag.cost,
             ).where(
                 UserFundTag.user_id == SINGLE_USER_ID,
                 UserFundTag.fund_share_class_id.in_(share_ids),
             )
         )
-        for share_id, tag_type, amount in rows:
+        for share_id, tag_type, amount, cost in rows:
             try:
                 tag = FundTagType(tag_type)
             except ValueError:
                 continue
             values = values_by_share.setdefault(
                 share_id,
-                {"tags": [], "holding_amount": None, "recurring_amount": None},
+                {"tags": [], "holding_amount": None, "holding_cost": None, "recurring_amount": None},
             )
             values["tags"].append(tag)
             if tag == FundTagType.HOLDING and amount is not None:
                 values["holding_amount"] = float(amount)
+            if tag == FundTagType.HOLDING and cost is not None:
+                values["holding_cost"] = float(cost)
             elif tag == FundTagType.RECURRING and amount is not None:
                 values["recurring_amount"] = float(amount)
         result: dict[int, FundTagState] = {}
@@ -1978,6 +1992,7 @@ class PostgresFundRepository(FundRepository):
             source_time=row["source_time"],
             tags=tag_state.tags,
             holding_amount=tag_state.holding_amount,
+            holding_cost=tag_state.holding_cost,
             recurring_amount=tag_state.recurring_amount,
         )
 

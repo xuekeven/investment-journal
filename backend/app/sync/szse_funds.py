@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.database import get_session_factory
 from app.database_models import FundListing, FundProduct, FundShareClass, IndexDefinition
 from app.sync_history import run_tracked_sync
-from app.sync.csrc_funds import EID_DETAIL_URL, validate_fund_code
+from app.sync.csrc_funds import EID_DETAIL_URL, fetch_fund_detail, validate_fund_code
 from app.sync.eid_disclosures import (
     PRODUCT_SUMMARY_LABEL,
     disclosure_documents,
@@ -30,7 +30,7 @@ from app.sync.sse_funds import ensure_index_master_data
 SZSE_REPORT_URL = "https://www.szse.cn/api/report/ShowReport/data"
 SZSE_SOURCE_URL = "https://www.szse.cn/www/market/product/list/etfList/index.html"
 SZSE_ETF_CATALOG_ID = "1945"
-SZSE_SEARCH_TERMS = ("中证500", "标普500", "纳指", "纳斯达克", "纳斯达克100")
+SZSE_SEARCH_TERMS = ("中证500", "标普500", "纳指", "纳斯达克", "纳斯达克100", "QDII")
 ASIA_SHANGHAI = ZoneInfo("Asia/Shanghai")
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,13 @@ NASDAQ_100_TARGET = SzseTarget(
     family_id="nasdaq-100",
     definition_id="nasdaq-100-price-cny",
     benchmark_description="纳斯达克100价格指数（NDX，人民币折算口径待基金合同核验）",
+    investment_scopes=("QDII",),
+    quality_status="unavailable",
+)
+OTHER_QDII_TARGET = SzseTarget(
+    family_id="other-qdii",
+    definition_id="other-qdii-benchmark",
+    benchmark_description="各基金跟踪指数或业绩比较基准以基金合同为准",
     investment_scopes=("QDII",),
     quality_status="unavailable",
 )
@@ -163,16 +170,29 @@ def fetch_report_page(
     return report
 
 
-def fetch_szse_funds() -> tuple[list[dict[str, str]], date]:
+def fetch_szse_funds(
+    qdii_catalog: dict[str, str] | None = None,
+    *, existing_tickers: set[str] | None = None,
+    catalog_snapshot_date: date | None = None,
+    catalog_source_url: str | None = None,
+) -> tuple[list[dict[str, str]], date]:
     rows_by_ticker: dict[str, dict[str, str]] = {}
     snapshot_dates: list[date] = []
+    szse_available = True
     headers = {"Referer": SZSE_SOURCE_URL, "User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=3)
     with httpx.Client(
         trust_env=False, timeout=30, headers=headers, transport=transport
     ) as client:
         for search_term in SZSE_SEARCH_TERMS:
-            first = fetch_report_page(client, page=1, search_term=search_term)
+            try:
+                first = fetch_report_page(client, page=1, search_term=search_term)
+            except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                if catalog_snapshot_date is None:
+                    raise
+                logger.warning("SZSE ETF search unavailable for %s: %s", search_term, exc)
+                szse_available = False
+                break
             metadata = first["metadata"]
             if metadata.get("subname"):
                 snapshot_dates.append(date.fromisoformat(metadata["subname"]))
@@ -193,12 +213,52 @@ def fetch_szse_funds() -> tuple[list[dict[str, str]], date]:
                     row["scale_date"] = scale_date_match.group(1) if scale_date_match else ""
                     if row["sys_key"]:
                         rows_by_ticker[row["sys_key"]] = row
+        for code, name in sorted((qdii_catalog or {}).items()) if szse_available else ():
+            if not code.startswith("159") or "ETF" not in name.upper() or code in rows_by_ticker:
+                continue
+            try:
+                report = fetch_report_page(client, page=1, search_term=code)
+            except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                logger.warning("SZSE QDII code lookup skipped %s: %s", code, exc)
+                continue
+            for raw_row in report.get("data") or []:
+                row = {
+                    key: clean_report_value(raw_row.get(key))
+                    for key in ("sys_key", "kzjcurl", "nhzs", "dqgm", "glrmc")
+                }
+                row["scale_date"] = ""
+                if row["sys_key"] == code:
+                    rows_by_ticker[code] = row
+        if catalog_snapshot_date is not None:
+            for code, name in sorted((qdii_catalog or {}).items()):
+                if (not code.startswith("159") or "ETF" not in name.upper()
+                    or code in rows_by_ticker or code in (existing_tickers or set())):
+                    continue
+                try:
+                    fund_id = validate_fund_code(client, code)
+                    detail = fetch_fund_detail(client, fund_id)
+                    if detail.code != code:
+                        raise ValueError(f"EID returned code {detail.code} for {code}")
+                except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                    logger.warning("CSRC QDII ETF fallback skipped %s: %s", code, exc)
+                    continue
+                rows_by_ticker[code] = {
+                    "sys_key": code, "kzjcurl": detail.short_name,
+                    "nhzs": "", "dqgm": "", "glrmc": detail.manager,
+                    "scale_date": "", "source_url": catalog_source_url or EID_DETAIL_URL,
+                    "source_date": catalog_snapshot_date.isoformat(),
+                    "listing_quality": "unavailable",
+                }
     if not snapshot_dates:
-        raise RuntimeError("SZSE ETF report did not provide a snapshot date")
+        if catalog_snapshot_date is None:
+            raise RuntimeError("Neither SZSE ETF report nor CSRC QDII catalogue provided a snapshot date")
+        return list(rows_by_ticker.values()), catalog_snapshot_date
     return list(rows_by_ticker.values()), max(snapshot_dates)
 
 
-def classify(row: dict[str, str]) -> SzseTarget | None:
+def classify(
+    row: dict[str, str], qdii_catalog: dict[str, str] | None = None,
+) -> SzseTarget | None:
     name = row["kzjcurl"]
     index_code = row["nhzs"].replace(" ", "").upper()
     if index_code.startswith(("000905", "399905")):
@@ -209,6 +269,14 @@ def classify(row: dict[str, str]) -> SzseTarget | None:
         return SP_500_TARGET
     if index_code == "NDX":
         return NASDAQ_100_TARGET
+    if not index_code and row.get("source_date"):
+        normalized_name = re.sub(r"[\s（）()]", "", (qdii_catalog or {}).get(row["sys_key"], name))
+        if "纳斯达克100" in normalized_name:
+            return NASDAQ_100_TARGET
+        if "标普500" in normalized_name:
+            return SP_500_TARGET
+    if "QDII" in name.upper() or row["sys_key"] in (qdii_catalog or {}):
+        return OTHER_QDII_TARGET
     return None
 
 
@@ -245,14 +313,22 @@ def ensure_szse_index_definitions(session: Session, source_time: datetime) -> No
     )
 
 
-def sync_rows(session: Session, rows: list[dict[str, str]], source_time: datetime) -> int:
+def sync_rows(
+    session: Session, rows: list[dict[str, str]], source_time: datetime,
+    qdii_catalog: dict[str, str] | None = None,
+) -> int:
     collected_at = datetime.now(UTC)
     synced = 0
     for row in rows:
-        target = classify(row)
+        target = classify(row, qdii_catalog)
         if target is None:
             continue
         ticker = row["sys_key"]
+        row_source_time = (
+            datetime.combine(date.fromisoformat(row["source_date"]), time.min, tzinfo=ASIA_SHANGHAI)
+            if row.get("source_date") else source_time
+        )
+        row_source_url = row.get("source_url", SZSE_SOURCE_URL)
         canonical_code = f"szse:{ticker}"
         product_values = {
             "name": row["kzjcurl"],
@@ -263,9 +339,9 @@ def sync_rows(session: Session, rows: list[dict[str, str]], source_time: datetim
             "tracking_method": "被动指数",
             "exact_benchmark_id": target.definition_id,
             "benchmark_description": target.benchmark_description,
-            "source_url": SZSE_SOURCE_URL,
-            "source_time": source_time,
-            "effective_from": source_time,
+            "source_url": row_source_url,
+            "source_time": row_source_time,
+            "effective_from": row_source_time,
             "collected_at": collected_at,
             "quality_status": target.quality_status,
         }
@@ -288,9 +364,9 @@ def sync_rows(session: Session, rows: list[dict[str, str]], source_time: datetim
             "fund_product_id": product_id,
             "display_name": row["kzjcurl"],
             "currency": "人民币",
-            "source_url": SZSE_SOURCE_URL,
-            "source_time": source_time,
-            "effective_from": source_time,
+            "source_url": row_source_url,
+            "source_time": row_source_time,
+            "effective_from": row_source_time,
             "collected_at": collected_at,
             "quality_status": target.quality_status,
         }
@@ -310,11 +386,11 @@ def sync_rows(session: Session, rows: list[dict[str, str]], source_time: datetim
         listing_values = {
             "fund_share_class_id": share_id,
             "listing_name": row["kzjcurl"],
-            "source_url": SZSE_SOURCE_URL,
-            "source_time": source_time,
-            "effective_from": source_time,
+            "source_url": row_source_url,
+            "source_time": row_source_time,
+            "effective_from": row_source_time,
             "collected_at": collected_at,
-            "quality_status": "verified",
+            "quality_status": row.get("listing_quality", "verified"),
         }
         listing_statement = insert(FundListing).values(
             exchange="深交所", ticker=ticker, **listing_values
@@ -330,9 +406,26 @@ def sync_rows(session: Session, rows: list[dict[str, str]], source_time: datetim
 
 
 def run_sync(*, dry_run: bool = False) -> tuple[date, int]:
-    rows, snapshot_date = fetch_szse_funds()
+    from app.sync.qdii_catalog import fetch_qdii_catalog
+
+    try:
+        catalog = fetch_qdii_catalog()
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        logger.warning("CSRC QDII identity lookup unavailable: %s", exc)
+        catalog = None
+    qdii_catalog = catalog.names if catalog else {}
+    with get_session_factory()() as lookup_session:
+        existing_tickers = set(lookup_session.scalars(
+            select(FundShareClass.code).where(FundShareClass.code.in_(qdii_catalog))
+        ))
+    rows, snapshot_date = fetch_szse_funds(
+        qdii_catalog,
+        existing_tickers=existing_tickers,
+        catalog_snapshot_date=catalog.snapshot_date if catalog else None,
+        catalog_source_url=catalog.source_url if catalog else None,
+    )
     source_time = datetime.combine(snapshot_date, time.min, tzinfo=ASIA_SHANGHAI)
-    target_tickers = [row["sys_key"] for row in rows if classify(row) is not None]
+    target_tickers = [row["sys_key"] for row in rows if classify(row, qdii_catalog) is not None]
     headers = {"User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=2)
     with get_session_factory()() as session, httpx.Client(
@@ -341,7 +434,7 @@ def run_sync(*, dry_run: bool = False) -> tuple[date, int]:
         transport=transport,
     ) as client:
         ensure_szse_index_definitions(session, source_time)
-        count = sync_rows(session, rows, source_time)
+        count = sync_rows(session, rows, source_time, qdii_catalog)
         fee_count, fee_failures = sync_target_fees(
             session, client, target_tickers, datetime.now(UTC)
         )

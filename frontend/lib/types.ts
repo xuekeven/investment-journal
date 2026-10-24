@@ -1,13 +1,29 @@
 export type DataStatus = "verified" | "delayed" | "estimated" | "sample" | "unavailable";
 export type TradingVenue = "场内" | "场外";
 export type FundTag = "favorite" | "holding" | "recurring";
-export type LimitNotificationScope = "sp-500" | "nasdaq-100" | "csi-500" | FundTag;
+
+export interface FundBlacklistItem {
+  id: number | null;
+  value: string;
+  managerName: string;
+  fundName: string;
+  reason: string;
+}
+
+export interface FundBlacklist {
+  companies: FundBlacklistItem[];
+  codes: FundBlacklistItem[];
+}
+export type LimitNotificationScope = "sp-500" | "nasdaq-100" | "other-qdii" | "csi-500" | FundTag;
 export type LimitNotificationFundType = "on_exchange" | "off_exchange" | "all";
 
 export interface LimitNotificationConfig {
   enabled: boolean;
   scope: LimitNotificationScope;
   fundType: LimitNotificationFundType;
+  deviationEnabled: boolean;
+  deviationThreshold: string | number;
+  deviationDirection: "above" | "below";
   weworkUserId: string;
   weworkApp: string;
   relayConfigured: boolean;
@@ -19,6 +35,15 @@ export type LimitNotificationConfigUpdate = Omit<
   LimitNotificationConfig,
   "relayConfigured" | "lastSentAt" | "lastError"
 >;
+
+export interface LimitNotificationTestRequest {
+  scope: LimitNotificationScope;
+  kind: "deviation" | "limit";
+  deviationThreshold?: number;
+  deviationDirection?: "above" | "below";
+  weworkUserId: string;
+  weworkApp: string;
+}
 
 export interface IndexSummary {
   id: string;
@@ -46,10 +71,10 @@ export interface FundComparisonRow {
   displayName: string;
   fundCompany: string;
   indexId: string;
-  productStructure: "ETF" | "普通开放式指数基金" | "ETF联接基金";
+  productStructure: "ETF" | "普通开放式指数基金" | "ETF联接基金" | "普通开放式基金" | "LOF";
   tradingVenue: TradingVenue;
   investmentScope: string[];
-  trackingMethod: "被动指数" | "指数增强";
+  trackingMethod: "被动指数" | "指数增强" | "主动管理";
   exactBenchmark: string;
   shareClass: string | null;
   currency: string;
@@ -80,12 +105,14 @@ export interface FundComparisonRow {
   note: string | null;
   tags: FundTag[];
   holdingAmount: number | null;
+  holdingCost: number | null;
   recurringAmount: number | null;
 }
 
 export interface FundTagState {
   tags: FundTag[];
   holdingAmount: number | null;
+  holdingCost: number | null;
   recurringAmount: number | null;
 }
 

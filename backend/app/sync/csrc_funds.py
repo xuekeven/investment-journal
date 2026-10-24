@@ -13,8 +13,9 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from openpyxl import load_workbook
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_session_factory
@@ -41,7 +42,7 @@ from app.sync.sse_details import (
 )
 from app.sync.sse_funds import ensure_index_master_data
 from app.limit_notifications import (
-    dispatch_pending_limit_notifications,
+    dispatch_pending_notifications,
     enqueue_limit_change,
 )
 
@@ -182,10 +183,16 @@ NASDAQ_100 = TargetIndex(
     "纳斯达克100指数（人民币折算及收益口径待基金合同核验）",
     ("QDII",),
 )
+OTHER_QDII = TargetIndex(
+    "other-qdii",
+    "other-qdii-benchmark",
+    "各基金跟踪指数或业绩比较基准以基金合同为准",
+    ("QDII",),
+)
 
 TARGET_BY_DEFINITION = {
     target.definition_id: target
-    for target in (CSI_500, SP_500, NASDAQ_100)
+    for target in (CSI_500, SP_500, NASDAQ_100, OTHER_QDII)
 }
 
 CSI_EXCLUDED_TOKENS = (
@@ -223,25 +230,29 @@ def is_exchange_traded_summary(text: str) -> bool:
 
 def classify_product(name: str) -> tuple[TargetIndex, str] | None:
     normalized = normalize_name(name)
-    if "LOF" in normalized or ("ETF" in normalized and "联接" not in normalized):
+    if "LOF" in normalized or "上市开放式" in normalized:
+        return None
+    is_qdii = "QDII" in normalized
+    if "ETF" in normalized and "联接" not in normalized:
         return None
     structure = (
         "ETF联接基金"
         if "ETF" in normalized and "联接" in normalized
-        else "普通开放式指数基金"
+        else "普通开放式指数基金" if "指数" in normalized
+        else "普通开放式基金"
     )
-    if "中证500" in normalized:
+    if "中证500" in normalized and not is_qdii:
         if any(token.upper() in normalized for token in CSI_EXCLUDED_TOKENS):
             return None
-        return CSI_500, structure
+        return CSI_500, "普通开放式指数基金" if structure == "普通开放式基金" else structure
     if "标普500" in normalized:
-        if any(token.upper() in normalized for token in US_EXCLUDED_TOKENS):
-            return None
-        return SP_500, structure
+        if not any(token.upper() in normalized for token in US_EXCLUDED_TOKENS):
+            return SP_500, "普通开放式指数基金" if structure == "普通开放式基金" else structure
     if any(token in normalized for token in ("纳斯达克100", "纳指100")):
-        if any(token.upper() in normalized for token in US_EXCLUDED_TOKENS):
-            return None
-        return NASDAQ_100, structure
+        if not any(token.upper() in normalized for token in US_EXCLUDED_TOKENS):
+            return NASDAQ_100, "普通开放式指数基金" if structure == "普通开放式基金" else structure
+    if is_qdii:
+        return OTHER_QDII, structure
     return None
 
 
@@ -961,25 +972,35 @@ def _announcement_limits(
             # incorrectly lowers a separately announced F-class limit.
             limits.setdefault(share.code, amount)
 
-    # An announcement can give a higher direct-sales limit in its table and
-    # a lower distributor limit in the notes. The single displayed limit must
-    # be usable across channels, so retain the most restrictive explicit
-    # channel amount for the named share classes.
-    for match in re.finditer(
-        r"通过(?:本公司)?(?:直销渠道|各?代销机构)"
-        r".{0,100}?本基金(?P<label>(?:[A-Z]类[或、，及和]?)+)份额"
-        r".{0,100}?累计金额(?:应)?不超过"
-        r"(?P<amount>\d[\d,]*(?:\.\d+)?)"
-        rf"(?P<unit>{_LIMIT_UNIT_PATTERN})",
-        compact,
-    ):
-        classes = set(re.findall(r"([A-Z])类", match.group("label")))
-        currency = _limit_currency(match.group("unit"))
-        amount = _limit_amount(match.group("amount"), match.group("unit"))
-        for share in shares.values():
-            if share.currency == currency and share.share_class in classes:
-                previous = limits.get(share.code)
-                limits[share.code] = min(previous, amount) if previous is not None else amount
+    # Some notices specify different limits for direct sales and distributors.
+    # The public single-limit field follows direct sales when both are given.
+    # Search each sentence so a direct-sales clause can inherit the A/C scope
+    # stated before a distributor clause, as in the Wanjia October notice.
+    channel_limits: dict[str, dict[str, Decimal]] = {}
+    for sentence in re.split(r"[。]", compact):
+        for match in re.finditer(
+            r"(?P<channel>直销渠道|代销渠道|各?代销机构)"
+            r".{0,160}?累计金额(?:限制)?(?:应不超过|不超过|调整为|仍为|为)"
+            r"(?P<amount>\d[\d,]*(?:\.\d+)?)"
+            rf"(?P<unit>{_LIMIT_UNIT_PATTERN})",
+            sentence,
+        ):
+            currency = _limit_currency(match.group("unit"))
+            # Prefer class names in this clause; otherwise use the sentence's
+            # preceding scope (the direct-sales clause often omits A/C).
+            clause = sentence[match.start() : match.end()]
+            classes = set(re.findall(r"([A-Z])类", clause))
+            if not classes:
+                classes = set(re.findall(r"([A-Z])类", sentence[: match.start()]))
+            amount = _limit_amount(match.group("amount"), match.group("unit"))
+            channel = "direct" if match.group("channel") == "直销渠道" else "distributor"
+            for share in shares.values():
+                if share.currency == currency and (
+                    not classes or share.share_class in classes
+                ):
+                    channel_limits.setdefault(share.code, {})[channel] = amount
+    for code, amounts in channel_limits.items():
+        limits[code] = amounts.get("direct", amounts.get("distributor"))
     return limits
 
 
@@ -1658,7 +1679,8 @@ def _decimal(value: Any) -> Decimal | None:
 
 
 def share_identity(display_name: str) -> tuple[str | None, str, str | None]:
-    compact = normalize_name(display_name).replace("(", "").replace(")", "")
+    compact = re.sub(r"\(QDII(?:-[^)]*)?\)", "", normalize_name(display_name))
+    compact = compact.replace("(", "").replace(")", "")
     currency = "美元" if any(token in compact for token in ("美元", "美汇", "美钞")) else "人民币"
     currency_form = (
         "现汇"
@@ -1668,8 +1690,8 @@ def share_identity(display_name: str) -> tuple[str | None, str, str | None]:
         else None
     )
     for pattern in (
-        r"(?:人民币|美元(?:现汇|现钞)?)?([A-Z])$",
-        r"([A-Z])(?:人民币|美元(?:现汇|现钞)?)$",
+        r"(?:人民币|美元(?:现汇|现钞)?)?([A-Z])(?:类|份额)?$",
+        r"([A-Z])(?:类|份额)?(?:人民币|美元(?:现汇|现钞)?)$",
     ):
         match = re.search(pattern, compact)
         if match:
@@ -1858,7 +1880,12 @@ def sync_fund(
         "product_structure": candidate.product_structure,
         "trading_venue": "仅场外",
         "investment_scopes": list(candidate.target.investment_scopes),
-        "tracking_method": "被动指数",
+        "tracking_method": (
+            "主动管理"
+            if candidate.target.family_id == "other-qdii"
+            and candidate.product_structure == "普通开放式基金"
+            else "被动指数"
+        ),
         "exact_benchmark_id": candidate.target.definition_id,
         "benchmark_description": (
             benchmark_description or candidate.target.benchmark_description
@@ -2055,7 +2082,12 @@ def sync_catalog_candidate(
         "product_structure": candidate.product_structure,
         "trading_venue": "仅场外",
         "investment_scopes": list(candidate.target.investment_scopes),
-        "tracking_method": "被动指数",
+        "tracking_method": (
+            "主动管理"
+            if candidate.target.family_id == "other-qdii"
+            and candidate.product_structure == "普通开放式基金"
+            else "被动指数"
+        ),
         "exact_benchmark_id": candidate.target.definition_id,
         "benchmark_description": candidate.target.benchmark_description,
         "inception_date": detail.inception_date or candidate.inception_date,
@@ -2256,7 +2288,7 @@ def run_sync(
                                 warnings.append(
                                     f"{candidate.code} {document.title}: {exc}"
                                 )
-                        if exchange_traded:
+                        if exchange_traded and structure != "LOF":
                             continue
                         if not summaries:
                             summary_discovery_complete = False
@@ -2414,7 +2446,7 @@ def run_sync(
                     shares += len(share_ids)
                     fee_shares += synced_fee_shares
                     scales += synced_scales
-                except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                except (httpx.HTTPError, RuntimeError, ValueError, SQLAlchemyError) as exc:
                     failures.append(f"{candidate.code} {candidate.name}: {exc}")
             if products == 0:
                 session.rollback()
@@ -2447,6 +2479,29 @@ def run_sync(
                         )
                         .values(status="inactive", updated_at=collected_at)
                     )
+            if not codes and limit is None:
+                excluded_lof_ids = list(session.scalars(
+                    select(FundProduct.id).where(
+                        FundProduct.canonical_code.like("csrc:%"),
+                        FundProduct.status == "active",
+                        or_(
+                            FundProduct.product_structure == "LOF",
+                            FundProduct.name.ilike("%LOF%"),
+                            FundProduct.name.like("%上市开放式%"),
+                        ),
+                    )
+                ))
+                if excluded_lof_ids:
+                    session.execute(
+                        update(FundProduct)
+                        .where(FundProduct.id.in_(excluded_lof_ids))
+                        .values(status="inactive", updated_at=collected_at)
+                    )
+                    session.execute(
+                        update(FundShareClass)
+                        .where(FundShareClass.fund_product_id.in_(excluded_lof_ids))
+                        .values(status="inactive", updated_at=collected_at)
+                    )
             if dry_run:
                 session.rollback()
             else:
@@ -2467,6 +2522,7 @@ def run_details_sync(
     dry_run: bool = False,
     limit: int | None = None,
     codes: tuple[str, ...] | None = None,
+    family_id: str | None = None,
 ) -> SyncStats:
     headers = {"User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=2)
@@ -2543,6 +2599,8 @@ def run_details_sync(
             matched_codes: set[str] = set()
             for product in stored_products:
                 target = TARGET_BY_DEFINITION.get(product.exact_benchmark_id or "")
+                if family_id is not None and (target is None or target.family_id != family_id):
+                    continue
                 product_codes = share_codes_by_product.get(product.id, [])
                 registration_code = product.registration_code or (
                     product_codes[0] if product_codes else ""
@@ -2845,7 +2903,7 @@ def run_details_sync(
                 session.commit()
     if not dry_run:
         try:
-            dispatch_pending_limit_notifications()
+            dispatch_pending_notifications()
         except Exception as exc:
             warnings.append(f"limit notification dispatch failed: {exc}")
     return SyncStats(

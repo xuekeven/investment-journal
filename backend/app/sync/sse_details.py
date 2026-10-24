@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_session_factory
+from app.limit_notifications import dispatch_pending_notifications
 from app.database_models import (
     CalculatedMetric,
     FundListing,
@@ -47,7 +48,7 @@ SSE_SNAPSHOT_SELECT = (
     "name,last,chg_rate,change,open,prev_close,high,low,volume,amount,"
     "tradephase,cpxxextendname,iopv,fp_volume,fp_amount,fp_phase,cpxxsubtype"
 )
-TARGET_FAMILY_IDS = tuple(target.family_id for target in TARGETS)
+TARGET_FAMILY_IDS = tuple(target.family_id for target in TARGETS) + ("other-qdii",)
 RETURN_CALCULATION_VERSION = "sse-eid-official-nav-simple-return-v1"
 RETURN_METRIC_CODES = (
     "return_1m",
@@ -476,13 +477,13 @@ def sync_scale(
             setattr(existing, key, value)
 
 
-def run_sync(*, dry_run: bool = False) -> tuple[int, list[date]]:
+def run_sync(*, dry_run: bool = False, family_id: str | None = None) -> tuple[int, list[date]]:
     collected_at = datetime.now(UTC)
     headers = {"User-Agent": SSE_USER_AGENT}
     with get_session_factory()() as session, httpx.Client(
         trust_env=False, timeout=30, headers=headers
     ) as client:
-        rows = session.execute(
+        statement = (
             select(
                 FundListing,
                 FundShareClass.id.label("share_id"),
@@ -506,7 +507,10 @@ def run_sync(*, dry_run: bool = False) -> tuple[int, list[date]]:
                 IndexDefinition.family_id.in_(TARGET_FAMILY_IDS),
             )
             .order_by(FundListing.ticker)
-        ).all()
+        )
+        if family_id is not None:
+            statement = statement.where(IndexDefinition.family_id == family_id)
+        rows = session.execute(statement).all()
         if not rows:
             raise RuntimeError("No active target SSE listings found; run script A first")
 
@@ -589,8 +593,14 @@ def main() -> None:
         description="Sync target SSE ETF detail-page metrics"
     )
     parser.add_argument("--dry-run", action="store_true", help="validate without committing")
+    parser.add_argument("--family", choices=TARGET_FAMILY_IDS, help="sync only this category")
     args = parser.parse_args()
-    count, trade_dates = run_sync(dry_run=args.dry_run)
+    count, trade_dates = run_sync(dry_run=args.dry_run, family_id=args.family)
+    if not args.dry_run:
+        try:
+            dispatch_pending_notifications()
+        except Exception as exc:
+            logging.warning("message notification dispatch failed: %s", exc)
     action = "validated" if args.dry_run else "synced"
     dates = ", ".join(item.isoformat() for item in trade_dates)
     print(f"SSE target ETF details {action}: {count}; trade dates: {dates}")

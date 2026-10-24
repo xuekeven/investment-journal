@@ -121,8 +121,15 @@ def test_indices_include_fund_counts() -> None:
     response = client.get("/api/v1/indices")
     assert response.status_code == 200
     indices = response.json()
-    assert [item["id"] for item in indices] == ["csi-500", "sp-500", "nasdaq-100"]
+    assert [item["id"] for item in indices] == ["csi-500", "sp-500", "nasdaq-100", "other-qdii"]
     assert sum(item["fundCount"] for item in indices) == 6
+
+
+def test_other_qdii_group_is_available_without_sample_funds() -> None:
+    response = client.get("/api/v1/indices/other-qdii/funds")
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert response.json()["index"]["shortName"] == "其他QDII"
 
 
 def test_filter_funds_by_venue() -> None:
@@ -150,6 +157,7 @@ def test_single_user_fund_tags_round_trip() -> None:
         json={
             "tags": ["favorite", "holding", "recurring"],
             "holdingAmount": 0,
+            "holdingCost": 1.2345,
             "recurringAmount": 125.5,
         },
     )
@@ -158,6 +166,7 @@ def test_single_user_fund_tags_round_trip() -> None:
         "fundCode": "006075",
         "tags": ["favorite", "holding", "recurring"],
         "holdingAmount": 0.0,
+        "holdingCost": 1.2345,
         "recurringAmount": 125.5,
     }
 
@@ -167,12 +176,14 @@ def test_single_user_fund_tags_round_trip() -> None:
     )
     assert tagged_fund["tags"] == ["favorite", "holding", "recurring"]
     assert tagged_fund["holdingAmount"] == 0.0
+    assert tagged_fund["holdingCost"] == 1.2345
     assert tagged_fund["recurringAmount"] == 125.5
 
     cleared = client.put("/api/v1/funds/006075/tags", json={"tags": []})
     assert cleared.status_code == 200
     assert cleared.json()["tags"] == []
     assert cleared.json()["holdingAmount"] is None
+    assert cleared.json()["holdingCost"] is None
     assert cleared.json()["recurringAmount"] is None
 
 
@@ -194,6 +205,12 @@ def test_single_user_fund_tags_validate_tag_and_fund() -> None:
         json={"tags": ["holding"], "holdingAmount": -1},
     )
     assert negative_amount.status_code == 422
+
+    negative_cost = client.put(
+        "/api/v1/funds/006075/tags",
+        json={"tags": ["holding"], "holdingCost": -1},
+    )
+    assert negative_cost.status_code == 422
 
 
 def test_investment_notes_round_trip() -> None:
