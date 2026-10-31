@@ -151,6 +151,8 @@ class FundComparisonRow(ApiModel):
     nav: float | None = None
     nav_date: date | None = None
     estimated_deviation: float | None = None
+    deviation_nav: float | None = None
+    deviation_nav_date: date | None = None
     scale_billion_cny: float | None = None
     scale_date: date | None = None
     returns: list[MetricValue]
@@ -453,4 +455,20 @@ class NavSeriesResponse(ApiModel):
     fund_code: str
     items: list[NavPoint]
     source_name: str | None = None
+    generated_at: datetime
+
+
+class DeviationPoint(ApiModel):
+    date: date
+    value: float
+    nav_date: date
+    close_price: float
+    unit_nav: float
+
+
+class DeviationSeriesResponse(ApiModel):
+    fund_code: str
+    start_date: date
+    end_date: date
+    items: list[DeviationPoint]
     generated_at: datetime

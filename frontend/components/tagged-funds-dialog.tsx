@@ -160,9 +160,6 @@ export function TaggedFundsDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="tagged-funds-title"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
     >
       <div className="tagged-funds-sheet">
         <header className="comparison-header">
@@ -366,7 +363,7 @@ export function TaggedFundsDialog({
                                 ) : null}
                                 {tag === "holding" ? (
                                   <td className={`tagged-profit-cell ${profit === null ? "" : profit > 0 ? "positive" : profit < 0 ? "negative" : ""}`}>
-                                    {profit === null ? "—" : `${profit > 0 ? "+" : ""}${profitFormatter.format(profit)}`}
+                                    {profit === null ? "—" : `${fund.currency === "美元" ? "$" : "¥"}${profit > 0 ? "+" : profit < 0 ? "-" : ""}${profitFormatter.format(Math.abs(profit))}`}
                                   </td>
                                 ) : null}
                                 {editing ? (

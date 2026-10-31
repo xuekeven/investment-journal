@@ -163,8 +163,7 @@ export function LimitNotificationDialog({ onClose }: LimitNotificationDialogProp
 
   return (
     <div className="comparison-overlay limit-notification-overlay" role="dialog" aria-modal="true"
-      aria-labelledby="limit-notification-title"
-      onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      aria-labelledby="limit-notification-title">
       <div className="limit-notification-sheet">
         <header className="comparison-header">
           <div>

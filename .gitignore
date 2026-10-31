@@ -23,6 +23,7 @@ backend/.sync-history.json.lock
 # Process manager
 *.log
 *.pid
+pictures
 
 # Editors and operating systems
 .DS_Store

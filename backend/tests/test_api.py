@@ -31,6 +31,16 @@ def test_health() -> None:
     assert response.json()["dataMode"] == "sample"
 
 
+def test_fund_list_supports_compressed_responses() -> None:
+    response = client.get(
+        "/api/v1/indices/sp-500/funds",
+        headers={"Accept-Encoding": "gzip"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.json()["items"]
+
+
 def test_readiness() -> None:
     response = client.get("/api/v1/health/ready")
     assert response.status_code == 200
@@ -179,6 +189,11 @@ def test_single_user_fund_tags_round_trip() -> None:
     assert tagged_fund["holdingCost"] == 1.2345
     assert tagged_fund["recurringAmount"] == 125.5
 
+    tagged_response = client.get("/api/v1/tagged-funds/recurring")
+    assert tagged_response.status_code == 200
+    assert [item["code"] for item in tagged_response.json()] == ["006075"]
+    assert tagged_response.json()[0]["recurringAmount"] == 125.5
+
     cleared = client.put("/api/v1/funds/006075/tags", json={"tags": []})
     assert cleared.status_code == 200
     assert cleared.json()["tags"] == []
@@ -188,6 +203,7 @@ def test_single_user_fund_tags_round_trip() -> None:
 
 
 def test_single_user_fund_tags_validate_tag_and_fund() -> None:
+    assert client.get("/api/v1/tagged-funds/unknown").status_code == 422
     invalid_tag = client.put(
         "/api/v1/funds/006075/tags",
         json={"tags": ["unknown"]},
@@ -519,6 +535,24 @@ def test_nav_rejects_reversed_date_range() -> None:
         params={"startDate": "2026-08-31", "endDate": "2026-08-01"},
     )
     assert response.status_code == 422
+
+
+def test_deviation_history_returns_dates_and_calculation_inputs() -> None:
+    response = client.get("/api/v1/funds/510500/deviations")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fundCode"] == "510500"
+    assert body["startDate"] <= body["endDate"]
+    assert body["items"] == sorted(body["items"], key=lambda item: item["date"])
+    for item in body["items"]:
+        assert body["startDate"] <= item["date"] <= body["endDate"]
+        assert item["navDate"] <= item["date"]
+        assert item["closePrice"] >= 0
+        assert item["unitNav"] > 0
+
+
+def test_deviation_history_rejects_unknown_fund() -> None:
+    assert client.get("/api/v1/funds/not-found/deviations").status_code == 404
 
 
 def test_sample_operating_rate_and_deviation_follow_display_contract() -> None:

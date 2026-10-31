@@ -197,6 +197,8 @@ def test_postgres_repository_loads_production_fund_query(repository) -> None:
     assert fund.expense_rate == pytest.approx(1.18)
     assert fund.returns[0].period == "1月"
     assert fund.subscription_status == "limited"
+    assert [item.code for item in repository.list_funds("sp-500", "场外")] == ["000001"]
+    assert repository.list_funds("sp-500", "场内") == []
 
 
 def test_postgres_repository_returns_category_freshness(repository) -> None:
@@ -226,6 +228,8 @@ def test_postgres_repository_persists_tags_and_notes(repository) -> None:
         "recurring",
     ]
     assert repository.get_fund("000001").recurring_amount == 88
+    assert [fund.code for fund in repository.list_tagged_funds(FundTagType.RECURRING)] == ["000001"]
+    assert [fund.code for fund in repository.list_tagged_funds(FundTagType.HOLDING)] == []
 
     note = repository.create_note(
         InvestmentNoteCreate(

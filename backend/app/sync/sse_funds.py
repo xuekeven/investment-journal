@@ -2,7 +2,7 @@ import argparse
 import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -30,7 +30,6 @@ from app.sync.eid_disclosures import (
 SSE_LIST_URL = "https://query.sse.com.cn/commonQuery.do"
 SSE_SOURCE_URL = "https://etf.sse.com.cn/fundlist/"
 SSE_FUND_BASE_INFO_SQL_ID = "COMMON_JJZWZ_JJLB_JJXQ_JBXX_C"
-SSE_FUND_NAV_URL = "https://yunhq.sse.com.cn:32042/v1/sh1/dayk"
 SSE_USER_AGENT = "investment-journal/0.1"
 ASIA_SHANGHAI = ZoneInfo("Asia/Shanghai")
 logger = logging.getLogger(__name__)
@@ -135,68 +134,6 @@ def classify(
     ) and "ETF" in f"{display_name} {catalog_name}".upper() and "LOF" not in catalog_name.upper():
         return OTHER_QDII
     return None
-
-
-def parse_sse_nav_records(payload: dict[str, Any]) -> dict[str, SseNavRecord]:
-    code = str(payload.get("code") or "").strip()
-    rows = payload.get("kline")
-    if not isinstance(rows, list):
-        raise RuntimeError("SSE fund detail day-K response did not contain kline data")
-
-    records: dict[str, SseNavRecord] = {}
-    for row in rows:
-        if not isinstance(row, list) or len(row) < 2:
-            continue
-        raw_date = str(row[0]).strip()
-        raw_nav = str(row[1]).strip()
-        if not code or raw_nav in ("", "-") or len(raw_date) != 8:
-            continue
-        try:
-            unit_nav = Decimal(raw_nav)
-            nav_date = datetime.strptime(raw_date, "%Y%m%d").date()
-        except (InvalidOperation, ValueError):
-            continue
-        if unit_nav <= 0:
-            continue
-        record = SseNavRecord(
-            code=code,
-            nav_date=nav_date,
-            unit_nav=unit_nav,
-        )
-        if code not in records or record.nav_date > records[code].nav_date:
-            records[code] = record
-    return records
-
-
-def fetch_sse_fund_navs(
-    rows: list[dict[str, Any]],
-) -> dict[str, SseNavRecord]:
-    matched_rows = {
-        str(row["FUND_CODE"]): row
-        for row in rows
-        if row.get("FUND_CODE")
-        if classify(row) is not None
-    }
-    if not matched_rows:
-        return {}
-
-    records: dict[str, SseNavRecord] = {}
-    with httpx.Client(trust_env=False, timeout=30) as client:
-        for code, row in matched_rows.items():
-            detail_url = sse_detail_url(code, str(row.get("CATEGORY") or ""))
-            response = client.get(
-                f"{SSE_FUND_NAV_URL}/{code}",
-                params={
-                    "begin": "-10",
-                    "end": "-1",
-                    "period": "day",
-                    "select": "date,iopv,prevClose",
-                },
-                headers={"Referer": detail_url, "User-Agent": SSE_USER_AGENT},
-            )
-            response.raise_for_status()
-            records.update(parse_sse_nav_records(response.json()))
-    return records
 
 
 def ensure_index_master_data(

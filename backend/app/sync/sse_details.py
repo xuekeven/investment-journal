@@ -26,6 +26,7 @@ from app.database_models import (
     NavDaily,
 )
 from app.sync_history import run_tracked_sync
+from app.sync.daily_deviation import is_qdii, sync_daily_deviations
 from app.sync.sse_funds import (
     ASIA_SHANGHAI,
     SSE_FUND_BASE_INFO_SQL_ID,
@@ -44,10 +45,7 @@ SSE_DAYK_URL = "https://yunhq.sse.com.cn:32042/v1/sh1/dayk"
 EID_NAV_URL = "http://eid.csrc.gov.cn/fund/disclose/getPublicFundJZInfoMore.do"
 EID_NAV_BACKFILL_DAYS = 400
 EID_NAV_PAGE_SIZE = 500
-SSE_SNAPSHOT_SELECT = (
-    "name,last,chg_rate,change,open,prev_close,high,low,volume,amount,"
-    "tradephase,cpxxextendname,iopv,fp_volume,fp_amount,fp_phase,cpxxsubtype"
-)
+SSE_SNAPSHOT_SELECT = "name,last,chg_rate,change,open,prev_close,high,low,volume,amount"
 TARGET_FAMILY_IDS = tuple(target.family_id for target in TARGETS) + ("other-qdii",)
 RETURN_CALCULATION_VERSION = "sse-eid-official-nav-simple-return-v1"
 RETURN_METRIC_CODES = (
@@ -73,7 +71,6 @@ class SseSnapshot:
     code: str
     trade_date: date
     close_price: Decimal
-    iopv: Decimal
     open_price: Decimal | None
     high_price: Decimal | None
     low_price: Decimal | None
@@ -129,7 +126,7 @@ def parse_sse_snapshot(payload: dict[str, Any]) -> SseSnapshot:
     code = str(payload.get("code") or "").strip()
     raw_date = str(payload.get("date") or "").strip()
     values = payload.get("snap")
-    if not code or len(raw_date) != 8 or not isinstance(values, list) or len(values) < 13:
+    if not code or len(raw_date) != 8 or not isinstance(values, list) or len(values) < 10:
         raise RuntimeError("SSE fund detail snapshot was incomplete")
     try:
         trade_date = datetime.strptime(raw_date, "%Y%m%d").date()
@@ -137,14 +134,12 @@ def parse_sse_snapshot(payload: dict[str, Any]) -> SseSnapshot:
         raise RuntimeError(f"Invalid SSE snapshot date: {raw_date!r}") from exc
 
     close_price = decimal_or_none(values[1])
-    iopv = decimal_or_none(values[12])
-    if close_price is None or close_price < 0 or iopv is None or iopv <= 0:
-        raise RuntimeError(f"SSE snapshot lacked close price or IOPV for {code}")
+    if close_price is None or close_price < 0:
+        raise RuntimeError(f"SSE snapshot lacked close price for {code}")
     return SseSnapshot(
         code=code,
         trade_date=trade_date,
         close_price=close_price,
-        iopv=iopv,
         open_price=decimal_or_none(values[4]),
         high_price=decimal_or_none(values[6]),
         low_price=decimal_or_none(values[7]),
@@ -405,7 +400,6 @@ def sync_quote(
         "close_price": snapshot.close_price,
         "volume": snapshot.volume,
         "turnover_amount": snapshot.turnover_amount,
-        "iopv": snapshot.iopv,
         "source_url": source_url,
         "source_time": business_time,
         "effective_from": business_time,
@@ -489,6 +483,7 @@ def run_sync(*, dry_run: bool = False, family_id: str | None = None) -> tuple[in
                 FundShareClass.id.label("share_id"),
                 FundProduct.id.label("product_id"),
                 FundProduct.exact_benchmark_id.label("index_definition_id"),
+                FundProduct.investment_scopes,
             )
             .join(
                 FundShareClass,
@@ -517,7 +512,7 @@ def run_sync(*, dry_run: bool = False, family_id: str | None = None) -> tuple[in
         trade_dates: set[date] = set()
         synced = 0
         failures: list[str] = []
-        for listing, share_id, product_id, index_definition_id in rows:
+        for listing, share_id, product_id, index_definition_id, investment_scopes in rows:
             try:
                 detail_url = (
                     listing.source_url
@@ -560,6 +555,14 @@ def run_sync(*, dry_run: bool = False, family_id: str | None = None) -> tuple[in
                         snapshot,
                         collected_at,
                         detail_url,
+                    )
+                    sync_daily_deviations(
+                        session,
+                        listing_id=listing.id,
+                        share_id=share_id,
+                        index_definition_id=index_definition_id,
+                        allow_lagged_nav=is_qdii(investment_scopes),
+                        collected_at=collected_at,
                     )
                     sync_scale(
                         session,

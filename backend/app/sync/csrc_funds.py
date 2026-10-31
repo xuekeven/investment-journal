@@ -941,6 +941,24 @@ def _announcement_limits(
             if share.currency == currency:
                 limits.setdefault(share.code, amount)
 
+    # Some mixed-currency notices have no numeric limit table. Instead, the
+    # prose states each share's cap as "人民币份额的金额不超过人民币100元"
+    # or "美元份额的金额不超过100美元".
+    for match in re.finditer(
+        r"(?P<currency>人民币|美元)份额的金额(?:应)?(?:不超过|不得超过|不高于)"
+        r"(?:人民币)?(?P<amount>\d[\d,]*(?:\.\d+)?)"
+        r"(?P<unit>元人民币|人民币元|美元|元)",
+        compact,
+    ):
+        currency = match.group("currency")
+        unit = match.group("unit")
+        if ("美元" in unit) != (currency == "美元"):
+            continue
+        amount = _limit_amount(match.group("amount"), unit)
+        for share in shares.values():
+            if share.currency == currency:
+                limits[share.code] = amount
+
     for match in re.finditer(
         r"(?P<label>"
         r"(?:申购)?本基金[^，。；]{0,80}?份额|"

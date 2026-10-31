@@ -25,6 +25,7 @@ from app.database_models import (
     NavDaily,
 )
 from app.sync_history import run_tracked_sync
+from app.sync.daily_deviation import is_qdii, sync_daily_deviations
 from app.sync.csrc_funds import EID_NAV_URL
 from app.sync.sse_details import calculate_return_metrics
 from app.sync.sse_funds import ASIA_SHANGHAI, SseNavRecord
@@ -378,6 +379,7 @@ def run_sync(
                 FundShareClass.id.label("share_id"),
                 FundProduct.id.label("product_id"),
                 FundProduct.exact_benchmark_id.label("index_definition_id"),
+                FundProduct.investment_scopes,
             )
             .join(FundShareClass, FundShareClass.id == FundListing.fund_share_class_id)
             .join(FundProduct, FundProduct.id == FundShareClass.fund_product_id)
@@ -396,7 +398,7 @@ def run_sync(
         if not targets:
             raise RuntimeError("No active target SZSE listings found; run script C first")
 
-        for listing, share_id, product_id, index_definition_id in targets:
+        for listing, share_id, product_id, index_definition_id, investment_scopes in targets:
             ticker = listing.ticker
             try:
                 try:
@@ -431,6 +433,14 @@ def run_sync(
                             collected_at,
                         )
                     sync_nav_daily(session, share_id, nav_records, collected_at, nav_source_url)
+                    sync_daily_deviations(
+                        session,
+                        listing_id=listing.id,
+                        share_id=share_id,
+                        index_definition_id=index_definition_id,
+                        allow_lagged_nav=is_qdii(investment_scopes),
+                        collected_at=collected_at,
+                    )
                     sync_return_metrics(
                         session,
                         share_id,

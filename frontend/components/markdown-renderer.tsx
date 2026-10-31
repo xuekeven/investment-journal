@@ -16,7 +16,40 @@ type MarkdownRendererProps = {
   content: string;
   className?: string;
   emptyText?: string;
+  dashSeparators?: boolean;
 };
+
+type MarkdownTreeNode = {
+  type: string;
+  depth?: number;
+  position?: { start: { line: number }; end: { line: number } };
+  children?: MarkdownTreeNode[];
+};
+
+function remarkDashSeparators() {
+  return (tree: MarkdownTreeNode, file: { value: string | Uint8Array }) => {
+    const lines = String(file.value).split(/\r?\n/);
+
+    function visit(node: MarkdownTreeNode) {
+      if (!node.children) return;
+      node.children = node.children.flatMap((child) => {
+        const underline = child.position && lines[child.position.end.line - 1];
+        if (child.type === "heading" && child.depth === 2
+          && child.position && child.position.end.line > child.position.start.line
+          && underline && /^ {0,3}-{3,}[ \t]*$/.test(underline)) {
+          return [
+            { type: "paragraph", children: child.children ?? [] },
+            { type: "thematicBreak" },
+          ];
+        }
+        visit(child);
+        return [child];
+      });
+    }
+
+    visit(tree);
+  };
+}
 
 function normalizeLatexDelimiters(content: string) {
   return content
@@ -38,6 +71,7 @@ export function MarkdownRenderer({
   content,
   className = "",
   emptyText,
+  dashSeparators = false,
 }: MarkdownRendererProps) {
   if (!content.trim()) {
     return emptyText ? <p className="markdown-empty">{emptyText}</p> : null;
@@ -61,7 +95,7 @@ export function MarkdownRenderer({
   return (
     <div className={["markdown-content", className].filter(Boolean).join(" ")}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, ...(dashSeparators ? [remarkDashSeparators] : [])]}
         rehypePlugins={[
           rehypeRaw,
           [rehypeSanitize, markdownSanitizeSchema],

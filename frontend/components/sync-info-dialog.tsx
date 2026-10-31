@@ -8,45 +8,22 @@ import {
   type SyncTaskKey,
   type SyncTaskSnapshot,
 } from "@/lib/api";
-import type { DataFreshness } from "@/lib/types";
 import { CloseIcon } from "./icons";
 
 interface SyncInfoDialogProps {
-  dataFreshness: DataFreshness;
   onClose: () => void;
 }
 
 type ScriptTaskKey = Exclude<SyncTaskKey, "all">;
 
-const FRESHNESS_ROWS: Array<{
-  key: keyof DataFreshness;
-  label: string;
-}> = [
-  { key: "master", label: "基金基本信息" },
-  { key: "nav", label: "基金净值" },
-  { key: "quote", label: "场内收盘价" },
-  { key: "fee", label: "运作费率" },
-  { key: "scale", label: "基金规模" },
-  { key: "metric", label: "区间收益率" },
-  { key: "subscription", label: "申购状态" },
-];
-
-const FRESHNESS_TABLE_ROWS = [
-  FRESHNESS_ROWS.slice(0, 4),
-  FRESHNESS_ROWS.slice(4, 8),
-];
-
-function formatFreshness(value: string | null) {
-  if (!value) return "暂无数据";
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
-}
+const SCRIPT_FILES: Record<ScriptTaskKey, string> = {
+  A: "sse_funds.py",
+  B: "sse_details.py",
+  C: "szse_funds.py",
+  D: "szse_details.py",
+  E: "csrc_funds.py",
+  F: "csrc_details.py",
+};
 
 function formatHistoryTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -124,9 +101,6 @@ function SyncHistoryDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="sync-history-title"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
     >
       <div className="sync-history-sheet">
         <header className="comparison-header">
@@ -202,31 +176,31 @@ const SYNC_ROWS: Array<{
           {
             label: "上交所",
             url: "https://etf.sse.com.cn/fundlist/",
-            description: "读取基金列表，筛选目标基金，获取代码、名称、管理人、跟踪指数、上市日期等基本信息",
+            description: "读取 ETF 列表，筛选目标基金，更新基金代码、名称等基本信息",
           },
           {
             label: "证监会基金电子披露网站",
             url: "http://eid.csrc.gov.cn/fund",
-            description: "获取每个目标基金的产品资料概要，获取运作费率（管理费+托管费）",
+            description: "读取产品资料概要，更新管理费率、托管费率和运作综合费率",
           },
         ],
       },
       {
         key: "B",
-        schedule: "周一至周五 22:00",
+        schedule: "周一至周五 22:05",
         sources: [
           {
             label: "上交所",
             url: "https://etf.sse.com.cn/fundlist/",
-            description: "获取收盘价、IOPV、基金规模和行情日期",
+            description: "获取收盘价、基金规模和行情日期",
           },
           {
             label: "证监会基金电子披露网站",
             url: "http://eid.csrc.gov.cn/fund",
-            description: "获取正式单位净值、真实净值日期及最近 400 天历史净值",
+            description: "中获取正式单位净值、净值日期及历史净值",
           },
         ],
-        ending: "；根据净值计算区间收益率。",
+        ending: "；根据正式净值计算区间收益率。",
       },
     ],
   },
@@ -240,12 +214,12 @@ const SYNC_ROWS: Array<{
           {
             label: "深交所",
             url: "https://www.szse.cn/www/market/product/list/etfList/index.html",
-            description: "读取基金列表，筛选目标基金，获取代码、名称、管理人、跟踪指数和上市信息",
+            description: "按关键词查询 ETF 列表并筛选目标基金；对搜索结果未覆盖的深市 QDII ETF，依据证监会索引按代码补查或经电子披露平台核验后补入。更新上述基金代码、名称等基本信息",
           },
           {
             label: "证监会基金电子披露网站",
             url: "http://eid.csrc.gov.cn/fund",
-            description: "获取每个目标基金的产品资料概要，获取运作费率（管理费+托管费）",
+            description: "读取产品资料概要，更新管理费率、托管费率和运作综合费率",
           },
         ],
       },
@@ -256,15 +230,15 @@ const SYNC_ROWS: Array<{
           {
             label: "深交所",
             url: "https://www.szse.cn/www/market/product/list/etfList/index.html",
-            description: "获取收盘价、基金净值、基金份额规模和交易日期",
+            description: "获取收盘价、正式单位净值、基金份额规模和交易日期",
           },
           {
             label: "证监会基金电子披露网站",
             url: "http://eid.csrc.gov.cn/fund",
-            description: "补充正式净值",
+            description: "中补充正式单位净值及历史净值",
           },
         ],
-        ending: "；结合净值估算基金规模，并计算区间收益率。",
+        ending: "；结合正式净值估算人民币基金规模，并计算区间收益率。",
       },
     ],
   },
@@ -278,24 +252,24 @@ const SYNC_ROWS: Array<{
           {
             label: "中国证监会",
             url: "https://www.csrc.gov.cn/csrc/c101900/c1029655/content.shtml",
-            description: "读取公募基金目录，筛选目标基金，获取代码、名称和类型",
+            description: "读取公募基金目录，筛选目标基金，获取代码、名称和成立日期",
           },
           {
             label: "证监会基金电子披露网站",
             url: "http://eid.csrc.gov.cn/fund",
-            description: "补充管理人以及 A/C 类、人民币/美元等份额信息，并获取每个份额的产品资料概要，获取运作费率（管理费+托管费+销售服务费）和季度基金规模",
+            description: "核验基金全称、管理人和合同生效日期，发现各份额，并从最新产品资料概要和季度报告更新费率、基金规模",
           },
         ],
       },
       {
         key: "F",
-        schedule: "周一至周五 09:00\n周一至周五 22:00",
+        schedule: "周一至周五 09:00\n周一至周五 22:10",
         sources: [{
           label: "证监会基金电子披露网站",
           url: "http://eid.csrc.gov.cn/fund",
-          description: "获取正式净值和申购状态",
+          description: "获取各份额的正式净值及历史净值，并解析申购公告中的状态与限额",
         }],
-        ending: "；根据正式净值计算区间收益率。",
+        ending: "；美元净值缺失时按规则从基金公司官网补充，并根据正式净值计算区间收益率。",
       },
     ],
   },
@@ -312,7 +286,6 @@ function statusLabel(
 }
 
 export function SyncInfoDialog({
-  dataFreshness,
   onClose,
 }: SyncInfoDialogProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -416,9 +389,6 @@ export function SyncInfoDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="sync-info-title"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
     >
       <div className="sync-info-sheet">
         <header className="comparison-header">
@@ -439,28 +409,6 @@ export function SyncInfoDialog({
 
         <div className="sync-info-content">
           {runError && <p className="sync-run-error">{runError}</p>}
-          <section className="sync-info-section">
-            <h3 id="sync-freshness-title">当前筛选数据的采集时间</h3>
-            <div className="sync-freshness-table-wrap">
-              <table className="sync-freshness-table" aria-labelledby="sync-freshness-title">
-                <tbody>
-                  {FRESHNESS_TABLE_ROWS.map((items, rowIndex) => (
-                    <tr key={rowIndex}>
-                      {items.map(({ key, label }) => (
-                        <td key={key}>
-                          <div className="sync-freshness-cell">
-                            <span>{label}</span>
-                            <strong>{formatFreshness(dataFreshness[key])}</strong>
-                          </div>
-                        </td>
-                      ))}
-                      {items.length < 4 && <td aria-hidden="true" />}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
           {SYNC_ROWS.map((row) => (
             <section key={row.scope} className="sync-info-section">
               <h3>{row.scope}</h3>
@@ -468,6 +416,7 @@ export function SyncInfoDialog({
                 <table className="sync-task-table">
                   <thead>
                     <tr>
+                      <th>脚本</th>
                       <th>执行时间</th>
                       <th>数据来源与更新内容</th>
                       <th>操作</th>
@@ -476,11 +425,14 @@ export function SyncInfoDialog({
                   <tbody>
                     {row.tasks.map((task, taskIndex) => (
                       <tr key={task.key}>
+                        <td className="sync-task-script" title={`backend/app/sync/${SCRIPT_FILES[task.key]}`}>
+                          脚本 {task.key}
+                        </td>
                         <td>{task.schedule}</td>
                         <td>
                           {task.sources.map((source, index) => (
                             <span
-                              key={`${task.key}-${source.label}`}
+                              key={`${task.key}-${index}`}
                               className={taskIndex === 0 ? "sync-task-source-line" : undefined}
                             >
                               {index > 0 && taskIndex !== 0 ? "；" : ""}

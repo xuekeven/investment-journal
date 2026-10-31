@@ -81,9 +81,6 @@ def test_parses_sse_detail_snapshot() -> None:
                 7.91,
                 254678534,
                 2032474227,
-                "E110",
-                "中证500ETF南方",
-                8.0051,
             ],
         }
     )
@@ -91,7 +88,6 @@ def test_parses_sse_detail_snapshot() -> None:
     assert snapshot.code == "510500"
     assert snapshot.trade_date == date(2026, 8, 14)
     assert snapshot.close_price == Decimal("7.998")
-    assert snapshot.iopv == Decimal("8.0051")
     assert snapshot.volume == Decimal("254678534")
     assert snapshot.turnover_amount == Decimal("2032474227")
 

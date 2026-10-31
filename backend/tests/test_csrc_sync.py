@@ -1404,6 +1404,35 @@ def test_wanjia_channel_limits_use_direct_amount_across_pdf_page_break() -> None
     ]
 
 
+def test_changxin_notice_reads_separate_rmb_and_usd_prose_limits() -> None:
+    shares = {
+        share.code: share
+        for share in (
+            SummaryShare("519981", "长信标普100等权重指数人民币份额", None, "人民币", None),
+            SummaryShare("011706", "长信标普100等权重指数美元份额", None, "美元", None),
+        )
+    }
+    states = parse_subscription_announcement(
+        "长信标普100等权重指数（QDII）暂停大额申购（含定期定额投资）业务的公告",
+        """公告送出日期：2026 年9 月10 日
+暂停大额申购起始日 2026 年9 月 11 日
+下属分级基金的交易代码 519981 011706
+自2026年9月11日起对长信标普100等权重指数（QDII）人民币份额和美元份额
+的大额申购（含定期定额投资）业务进行限制，即单日单个基金账户累计申购
+（含定期定额投资）长信标普100等权重指数（QDII）人民币份额的金额不超过人民币100元、
+长信标普100等权重指数（QDII）美元份额的金额不超过100美元。
+""",
+        shares,
+        "http://eid.csrc.gov.cn/fund/disclose/instance_show_pdf_id.do?instanceid=1577140",
+    )
+
+    assert [(state.code, state.status, state.limit_amount, state.currency, state.effective_date)
+            for state in states] == [
+        ("519981", "limited", Decimal("100"), "人民币", date(2026, 9, 11)),
+        ("011706", "limited", Decimal("100"), "美元", date(2026, 9, 11)),
+    ]
+
+
 def test_subscription_documents_include_amount_limit_titles() -> None:
     html = """
     <a href="instance_show_pdf_id.do?instanceid=1">申购、定投业务金额限制公告</a>

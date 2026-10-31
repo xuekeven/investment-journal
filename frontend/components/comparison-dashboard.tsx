@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getComparison, getFunds, getIndices, updateFundTags } from "@/lib/api";
+import { getComparison, getFunds, getIndices, getTaggedFunds, updateFundTags } from "@/lib/api";
 import {
   keepAvailable,
   readFilterPreferences,
@@ -608,19 +608,9 @@ export function ComparisonDashboard() {
     setTaggedFundsError(null);
     setTaggedFundsLoading(true);
     try {
-      const responses = await Promise.all(
-        indices.flatMap((index) => (["场内", "场外"] as const).map(
-          (itemVenue) => getFunds(index.id, itemVenue, [], controller.signal),
-        )),
-      );
+      const items = await getTaggedFunds(tag, controller.signal);
       if (taggedFundsController.current !== controller) return;
-      const taggedByCode = new Map<string, FundComparisonRow>();
-      responses.forEach((response) => {
-        response.items.forEach((fund) => {
-          if (fund.tags.includes(tag)) taggedByCode.set(fund.code, fund);
-        });
-      });
-      const taggedItems = [...taggedByCode.values()].sort((left, right) => (
+      const taggedItems = items.sort((left, right) => (
         (INDEX_ORDER[left.indexId] ?? 99) - (INDEX_ORDER[right.indexId] ?? 99)
         || left.tradingVenue.localeCompare(right.tradingVenue, "zh-CN")
         || left.displayName.localeCompare(right.displayName, "zh-CN")
@@ -1086,7 +1076,7 @@ export function ComparisonDashboard() {
           )}
 
           <p className="table-footnote">
-            “偏离”：QDII 使用最新中国交易日收盘价与最新可得境外净值计算；其他基金使用净值日对应的同日收盘价。公式均为“收盘价 ÷ 单位净值 − 1”。
+            “偏离”：QDII 使用最新中国交易日收盘价与此前最近的正式净值计算；其他基金使用净值日对应的同日收盘价。公式均为“收盘价 ÷ 单位净值 − 1”。
           </p>
         </section>
       </main>
@@ -1137,7 +1127,7 @@ export function ComparisonDashboard() {
         />
       )}
       {syncInfoOpen && (
-        <SyncInfoDialog dataFreshness={dataFreshness} onClose={closeSyncInfo} />
+        <SyncInfoDialog onClose={closeSyncInfo} />
       )}
       {limitNotificationOpen && (
         <LimitNotificationDialog onClose={() => setLimitNotificationOpen(false)} />

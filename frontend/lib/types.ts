@@ -95,6 +95,8 @@ export interface FundComparisonRow {
   nav: number | null;
   navDate: string | null;
   estimatedDeviation: number | null;
+  deviationNav?: number | null;
+  deviationNavDate?: string | null;
   scaleBillionCny: number | null;
   scaleDate: string | null;
   returns: MetricValue[];
@@ -107,6 +109,22 @@ export interface FundComparisonRow {
   holdingAmount: number | null;
   holdingCost: number | null;
   recurringAmount: number | null;
+}
+
+export interface DeviationPoint {
+  date: string;
+  value: number;
+  navDate: string;
+  closePrice: number;
+  unitNav: number;
+}
+
+export interface DeviationSeriesResponse {
+  fundCode: string;
+  startDate: string;
+  endDate: string;
+  items: DeviationPoint[];
+  generatedAt: string;
 }
 
 export interface FundTagState {

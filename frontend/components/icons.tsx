@@ -63,6 +63,15 @@ export function CloseIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function TrendIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path d="M3 19h18M4 15.5l5-4.5 4 3 6-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="19" cy="7" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function TrashIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>

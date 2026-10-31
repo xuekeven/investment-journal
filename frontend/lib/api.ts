@@ -6,7 +6,9 @@ import type {
   ContentOptionResponse,
   ContentOptionItem,
   ContentOptionType,
+  DeviationSeriesResponse,
   FundListResponse,
+  FundComparisonRow,
   FundBlacklist,
   FundTag,
   FundTagResponse,
@@ -135,6 +137,19 @@ export function getFunds(
   exchanges.forEach((exchange) => params.append("exchange", exchange));
   const suffix = params.size ? `?${params.toString()}` : "";
   return getJson<FundListResponse>(`/indices/${indexId}/funds${suffix}`, signal);
+}
+
+export function getTaggedFunds(tag: FundTag, signal?: AbortSignal): Promise<FundComparisonRow[]> {
+  return getJson<FundComparisonRow[]>(`/tagged-funds/${tag}`, signal);
+}
+
+export function getFundDeviationHistory(
+  fundCode: string,
+  signal?: AbortSignal,
+): Promise<DeviationSeriesResponse> {
+  return getJson<DeviationSeriesResponse>(
+    `/funds/${encodeURIComponent(fundCode)}/deviations`, signal,
+  );
 }
 
 export function getComparison(

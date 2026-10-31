@@ -35,6 +35,7 @@ from app.models import (
     ContentOptionType,
     DataStatus,
     DataFreshness,
+    DeviationPoint,
     FundComparisonRow,
     FundTagState,
     FundTagType,
@@ -58,6 +59,8 @@ RETURN_PERIOD_LABELS = {
     "return_ytd": "今年来",
     "return_1y": "1年",
 }
+DAILY_DEVIATION_METRIC_CODE = "estimated_deviation"
+DAILY_DEVIATION_CALCULATION_VERSION = "close-prior-official-nav-v2"
 SINGLE_USER_ID = "default"
 FUND_TAG_ORDER = {
     FundTagType.FAVORITE: 0,
@@ -244,17 +247,14 @@ def calculate_estimated_deviation(
     lagged_nav_is_usable = (
         allow_lagged_nav
         and lag_days is not None
-        and 0 <= lag_days <= 7
+        and 1 <= lag_days <= 7
     )
     if (
         close_price is None
         or nav in (None, 0)
         or close_date is None
         or nav_date is None
-        or (
-            close_date != nav_date
-            and not lagged_nav_is_usable
-        )
+        or (not lagged_nav_is_usable if allow_lagged_nav else close_date != nav_date)
     ):
         return None
     return round((close_price / nav - 1) * 100, 4)
@@ -284,7 +284,12 @@ class FundRepository(ABC):
     ) -> DataFreshness: ...
 
     @abstractmethod
-    def list_funds(self, index_id: str | None = None) -> list[FundComparisonRow]: ...
+    def list_funds(
+        self, index_id: str | None = None, venue: str | None = None
+    ) -> list[FundComparisonRow]: ...
+
+    @abstractmethod
+    def list_tagged_funds(self, tag: FundTagType) -> list[FundComparisonRow]: ...
 
     @abstractmethod
     def get_fund(self, code: str) -> FundComparisonRow | None: ...
@@ -372,6 +377,11 @@ class FundRepository(ABC):
     ) -> list[NavPoint]: ...
 
     @abstractmethod
+    def get_deviation_history(
+        self, code: str, start_date: date, end_date: date
+    ) -> list[DeviationPoint]: ...
+
+    @abstractmethod
     def is_ready(self) -> bool: ...
 
 
@@ -442,10 +452,17 @@ class SampleFundRepository(FundRepository):
     ) -> DataFreshness:
         return DataFreshness()
 
-    def list_funds(self, index_id: str | None = None) -> list[FundComparisonRow]:
-        if index_id is None:
-            return self._funds
-        return [fund for fund in self._funds if fund.index_id == index_id]
+    def list_funds(
+        self, index_id: str | None = None, venue: str | None = None
+    ) -> list[FundComparisonRow]:
+        return [
+            fund for fund in self._funds
+            if (index_id is None or fund.index_id == index_id)
+            and (venue is None or fund.trading_venue.value == venue)
+        ]
+
+    def list_tagged_funds(self, tag: FundTagType) -> list[FundComparisonRow]:
+        return [fund for fund in self._funds if tag in fund.tags]
 
     def get_fund(self, code: str) -> FundComparisonRow | None:
         return next((item for item in self._funds if item.code == code), None)
@@ -814,6 +831,25 @@ class SampleFundRepository(FundRepository):
             and (end_date is None or point.date <= end_date)
         ][-limit:]
 
+    def get_deviation_history(
+        self, code: str, start_date: date, end_date: date
+    ) -> list[DeviationPoint]:
+        fund = self.get_fund(code)
+        if (
+            fund is None or fund.estimated_deviation is None
+            or fund.close_date is None or fund.nav_date is None
+            or fund.close_price is None or fund.nav is None
+            or not start_date <= fund.close_date <= end_date
+        ):
+            return []
+        return [DeviationPoint(
+            date=fund.close_date,
+            value=fund.estimated_deviation,
+            nav_date=fund.nav_date,
+            close_price=fund.close_price,
+            unit_nav=fund.nav,
+        )]
+
     def is_ready(self) -> bool:
         return True
 
@@ -955,7 +991,10 @@ class PostgresFundRepository(FundRepository):
                 func.max(CalculatedMetric.collected_at).label("collected_at"),
             )
             .join(FundShareClass, CalculatedMetric.fund_share_class_id == FundShareClass.id)
-            .where(FundShareClass.fund_product_id.in_(product_ids)),
+            .where(
+                FundShareClass.fund_product_id.in_(product_ids),
+                CalculatedMetric.metric_code.in_(RETURN_PERIOD_LABELS),
+            ),
             select(
                 literal("subscription").label("category"),
                 func.max(SalesLimitHistory.collected_at).label("collected_at"),
@@ -990,11 +1029,19 @@ class PostgresFundRepository(FundRepository):
     ) -> datetime | None:
         return self.get_data_freshness(index_id, venue, exchanges).latest_at
 
-    def list_funds(self, index_id: str | None = None) -> list[FundComparisonRow]:
+    def list_funds(
+        self, index_id: str | None = None, venue: str | None = None
+    ) -> list[FundComparisonRow]:
         with self._session_factory() as session:
             statement = self._fund_statement()
             if index_id is not None:
                 statement = statement.where(IndexDefinition.family_id == index_id)
+            if venue is not None:
+                statement = statement.where(
+                    FundProduct.trading_venue == (
+                        "仅场内" if venue == "场内" else "仅场外"
+                    )
+                )
             rows = session.execute(statement.order_by(FundShareClass.code)).mappings().all()
             row_dicts = [dict(row) for row in rows]
             fees_by_share, metrics_by_share = self._load_fund_details(
@@ -1012,6 +1059,20 @@ class PostgresFundRepository(FundRepository):
                 )
                 for row in row_dicts
             ]
+
+    def list_tagged_funds(self, tag: FundTagType) -> list[FundComparisonRow]:
+        with self._session_factory() as session:
+            codes = list(session.scalars(
+                select(func.coalesce(FundListing.ticker, FundShareClass.code))
+                .select_from(UserFundTag)
+                .join(FundShareClass, UserFundTag.fund_share_class_id == FundShareClass.id)
+                .outerjoin(FundListing, FundListing.fund_share_class_id == FundShareClass.id)
+                .where(
+                    UserFundTag.user_id == SINGLE_USER_ID,
+                    UserFundTag.tag_type == tag.value,
+                )
+            ))
+        return self.get_funds(list(dict.fromkeys(codes)))
 
     def get_fund(self, code: str) -> FundComparisonRow | None:
         funds = self.get_funds([code])
@@ -1616,6 +1677,36 @@ class PostgresFundRepository(FundRepository):
                 for row in reversed(rows)
             ]
 
+    def get_deviation_history(
+        self, code: str, start_date: date, end_date: date
+    ) -> list[DeviationPoint]:
+        with self._session_factory() as session:
+            share_id = session.scalar(
+                select(FundShareClass.id)
+                .outerjoin(FundListing, FundListing.fund_share_class_id == FundShareClass.id)
+                .where(or_(FundShareClass.code == code, FundListing.ticker == code))
+            )
+            if share_id is None:
+                return []
+            rows = session.execute(
+                select(CalculatedMetric)
+                .where(
+                    CalculatedMetric.fund_share_class_id == share_id,
+                    CalculatedMetric.metric_code == DAILY_DEVIATION_METRIC_CODE,
+                    CalculatedMetric.calculation_version == DAILY_DEVIATION_CALCULATION_VERSION,
+                    CalculatedMetric.period_end >= start_date,
+                    CalculatedMetric.period_end <= end_date,
+                )
+                .order_by(CalculatedMetric.period_end)
+            ).scalars()
+            return [DeviationPoint(
+                date=row.period_end,
+                value=float(row.value),
+                nav_date=date.fromisoformat(row.calculation_inputs["nav_date"]),
+                close_price=float(row.calculation_inputs["close_price"]),
+                unit_nav=float(row.calculation_inputs["unit_nav"]),
+            ) for row in rows if row.value is not None]
+
     def is_ready(self) -> bool:
         with self._session_factory() as session:
             return session.scalar(select(1)) == 1
@@ -1645,6 +1736,7 @@ class PostgresFundRepository(FundRepository):
 
     def _fund_statement(self) -> Select[Any]:
         latest_nav = aliased(NavDaily)
+        prior_nav = aliased(NavDaily)
         latest_quote = aliased(MarketQuote)
         same_day_quote = aliased(MarketQuote)
         latest_scale = aliased(FundScale)
@@ -1661,6 +1753,16 @@ class PostgresFundRepository(FundRepository):
             .order_by(MarketQuote.trade_date.desc(), MarketQuote.id.desc())
             .limit(1)
             .correlate(FundListing)
+        )
+        prior_nav_id = (
+            select(NavDaily.id)
+            .where(
+                NavDaily.fund_share_class_id == FundShareClass.id,
+                NavDaily.nav_date < latest_quote.trade_date,
+            )
+            .order_by(NavDaily.nav_date.desc(), NavDaily.id.desc())
+            .limit(1)
+            .correlate(FundShareClass, latest_quote)
         )
         same_day_quote_id = (
             select(MarketQuote.id)
@@ -1755,6 +1857,8 @@ class PostgresFundRepository(FundRepository):
                 FundListing.ticker,
                 latest_nav.unit_nav.label("nav"),
                 latest_nav.nav_date,
+                prior_nav.unit_nav.label("prior_nav"),
+                prior_nav.nav_date.label("prior_nav_date"),
                 latest_quote.close_price,
                 latest_quote.trade_date.label("close_date"),
                 same_day_quote.close_price.label("deviation_close_price"),
@@ -1773,6 +1877,7 @@ class PostgresFundRepository(FundRepository):
             .outerjoin(FundListing, FundListing.fund_share_class_id == FundShareClass.id)
             .outerjoin(latest_nav, latest_nav.id == latest_nav_id.scalar_subquery())
             .outerjoin(latest_quote, latest_quote.id == latest_quote_id.scalar_subquery())
+            .outerjoin(prior_nav, prior_nav.id == prior_nav_id.scalar_subquery())
             .outerjoin(
                 same_day_quote,
                 same_day_quote.id == same_day_quote_id.scalar_subquery(),
@@ -1840,7 +1945,10 @@ class PostgresFundRepository(FundRepository):
         ).label("rank")
         latest_metric_ids = (
             select(CalculatedMetric.id.label("metric_id"), metric_rank)
-            .where(CalculatedMetric.fund_share_class_id.in_(share_ids))
+            .where(
+                CalculatedMetric.fund_share_class_id.in_(share_ids),
+                CalculatedMetric.metric_code.in_(RETURN_PERIOD_LABELS),
+            )
             .subquery()
         )
         metrics_by_share: dict[int, dict[str, CalculatedMetric]] = {}
@@ -1923,11 +2031,15 @@ class PostgresFundRepository(FundRepository):
             else None
         )
         deviation_close_date = row["close_date"] if is_qdii else row["nav_date"]
+        deviation_nav = (
+            float(row["prior_nav"]) if row["prior_nav"] is not None else None
+        ) if is_qdii else nav
+        deviation_nav_date = row["prior_nav_date"] if is_qdii else row["nav_date"]
         estimated_deviation = calculate_estimated_deviation(
             deviation_close,
             deviation_close_date,
-            nav,
-            row["nav_date"],
+            deviation_nav,
+            deviation_nav_date,
             allow_lagged_nav=is_qdii,
         )
 
@@ -1981,6 +2093,8 @@ class PostgresFundRepository(FundRepository):
             nav=nav,
             nav_date=row["nav_date"],
             estimated_deviation=estimated_deviation,
+            deviation_nav=deviation_nav if estimated_deviation is not None else None,
+            deviation_nav_date=deviation_nav_date if estimated_deviation is not None else None,
             scale_billion_cny=(
                 float(row["scale_cny"]) / 100_000_000 if row["scale_cny"] is not None else None
             ),

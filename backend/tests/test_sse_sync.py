@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -6,7 +6,6 @@ import app.sync.sse_funds as sse_funds
 
 from app.sync.sse_funds import (
     classify,
-    parse_sse_nav_records,
     sse_detail_url,
     sync_target_fees,
 )
@@ -42,32 +41,6 @@ def test_classifies_other_qdii_etf() -> None:
     assert classify(unlabeled, {"513010": "易方达恒生科技ETF（QDII）"}).family_id == "other-qdii"
     lof = {**row("全球半导体指数", "全球半导体基金"), "FUND_CODE": "501225"}
     assert classify(lof, {"501225": "全球半导体股票（QDII-LOF）"}) is None
-
-
-def test_parses_sse_detail_page_nav() -> None:
-    records = parse_sse_nav_records(
-        {
-            "code": "510500",
-            "kline": [
-                [20260813, 7.9705, 8.0530],
-                [20260814, 8.0051, 7.9800],
-            ],
-        }
-    )
-
-    assert records["510500"].unit_nav == Decimal("8.0051")
-    assert records["510500"].nav_date == date(2026, 8, 14)
-
-
-def test_ignores_invalid_sse_detail_page_nav() -> None:
-    records = parse_sse_nav_records(
-        {
-            "code": "510500",
-            "kline": [[20260814, 0, 7.9800]],
-        }
-    )
-
-    assert records == {}
 
 
 def test_builds_sse_detail_url_with_category() -> None:

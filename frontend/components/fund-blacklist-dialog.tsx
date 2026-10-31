@@ -180,7 +180,7 @@ export function FundBlacklistDialog({ onClose }: { onClose: () => void }) {
   }
 
   return createPortal(
-    <div className="comparison-overlay blacklist-overlay" role="dialog" aria-modal="true" aria-labelledby="blacklist-title" onPointerDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+    <div className="comparison-overlay blacklist-overlay" role="dialog" aria-modal="true" aria-labelledby="blacklist-title">
       <div className="tagged-funds-sheet blacklist-sheet">
         <header className="comparison-header">
           <div><span className="section-kicker">投资记录</span><h2 id="blacklist-title">黑名单</h2></div>

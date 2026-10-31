@@ -50,6 +50,16 @@ def test_qdii_deviation_uses_newer_china_close_with_latest_us_nav() -> None:
     ) == 7.3484
 
 
+def test_qdii_deviation_rejects_same_day_nav() -> None:
+    assert calculate_estimated_deviation(
+        1.969,
+        date(2026, 10, 26),
+        1.8632,
+        date(2026, 10, 26),
+        allow_lagged_nav=True,
+    ) is None
+
+
 def test_qdii_deviation_rejects_close_older_than_nav() -> None:
     assert calculate_estimated_deviation(
         2.089,

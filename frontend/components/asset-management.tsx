@@ -380,8 +380,8 @@ function AssetComparisonDialog({ dashboard, onClose }: { dashboard: AssetDashboa
   };
   const ready = current?.snapshotId === currentId && baseline?.snapshotId === baselineId;
 
-  return <div className="asset-dialog-overlay asset-comparison-overlay" role="presentation" onMouseDown={onClose}>
-    <section className="asset-dialog asset-comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-comparison-title" onMouseDown={(event) => event.stopPropagation()}>
+  return <div className="asset-dialog-overlay asset-comparison-overlay" role="presentation">
+    <section className="asset-dialog asset-comparison-dialog" role="dialog" aria-modal="true" aria-labelledby="asset-comparison-title">
       <header><div><span>资产对比</span><h2 id="asset-comparison-title">记录对比</h2></div><div className="asset-comparison-toolbar">
         <AssetSelect id="asset-comparison-baseline" label="基准记录" value={selectedDate(baselineId)} options={history.filter((item) => item.snapshotId !== currentId).map((item) => item.snapshotDate)} onChange={(value) => choose(value, setBaselineId)} />
         <button type="button" aria-label="交换基准记录和当前记录" title="交换两期" onClick={() => { const nextBaseline = currentId; setCurrentId(baselineId); setBaselineId(nextBaseline); }}>⇄</button>
@@ -493,8 +493,8 @@ export function SnapshotDialog({
   }
 
   return (
-    <div className="asset-dialog-overlay" role="presentation" onMouseDown={onClose}>
-      <section className="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="snapshot-title" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="asset-dialog-overlay" role="presentation">
+      <section className="asset-dialog" role="dialog" aria-modal="true" aria-labelledby="snapshot-title">
         <header>
           <div><span>资产记录</span><h2 id="snapshot-title">新增资产记录</h2></div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><CloseIcon /></button>
@@ -829,7 +829,7 @@ function OptionsDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     } catch (reason) { setError(reason instanceof Error ? reason.message : "保存配置失败"); }
     finally { setSaving(false); }
   }
-  return <div className="asset-dialog-overlay" role="presentation" onMouseDown={onClose}><section className="asset-dialog asset-options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title" onMouseDown={(event) => event.stopPropagation()}><header><div><span>资产配置</span><h2 id="options-title">选项配置</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><CloseIcon /></button></header>{!options ? <div className="asset-dialog-loading">{error ?? "正在读取…"}</div> : <form onSubmit={submit}><div className="asset-option-grid"><AssetOptionEditor title="资产类别" values={options.assetCategories} required={[]} onChange={(values) => setOptions({ ...options, assetCategories: values })} /><AssetOptionEditor className="asset-option-editor-wide" title="投资品种" values={options.assetClasses} required={[]} onChange={(values) => setOptions({ ...options, assetClasses: values })} /><div className="asset-option-stack"><AssetOptionEditor title="资金用途" values={options.purposes} required={[]} onChange={(values) => setOptions({ ...options, purposes: values })} /><AssetOptionEditor title="风险等级" values={options.risks} required={[]} onChange={(values) => setOptions({ ...options, risks: values })} /></div></div>{error && <p className="asset-form-error">{error}</p>}<footer><button type="button" onClick={onClose}>取消</button><button className="primary" type="submit" disabled={saving}>{saving ? "保存中…" : "保存配置"}</button></footer></form>}</section></div>;
+  return <div className="asset-dialog-overlay" role="presentation"><section className="asset-dialog asset-options-dialog" role="dialog" aria-modal="true" aria-labelledby="options-title"><header><div><span>资产配置</span><h2 id="options-title">选项配置</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><CloseIcon /></button></header>{!options ? <div className="asset-dialog-loading">{error ?? "正在读取…"}</div> : <form onSubmit={submit}><div className="asset-option-grid"><AssetOptionEditor title="资产类别" values={options.assetCategories} required={[]} onChange={(values) => setOptions({ ...options, assetCategories: values })} /><AssetOptionEditor className="asset-option-editor-wide" title="投资品种" values={options.assetClasses} required={[]} onChange={(values) => setOptions({ ...options, assetClasses: values })} /><div className="asset-option-stack"><AssetOptionEditor title="资金用途" values={options.purposes} required={[]} onChange={(values) => setOptions({ ...options, purposes: values })} /><AssetOptionEditor title="风险等级" values={options.risks} required={[]} onChange={(values) => setOptions({ ...options, risks: values })} /></div></div>{error && <p className="asset-form-error">{error}</p>}<footer><button type="button" onClick={onClose}>取消</button><button className="primary" type="submit" disabled={saving}>{saving ? "保存中…" : "保存配置"}</button></footer></form>}</section></div>;
 }
 
 export function AssetManagement() {

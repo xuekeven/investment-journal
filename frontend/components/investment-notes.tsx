@@ -223,9 +223,9 @@ function NoteReader({ note, active, saving, onEdit, onDelete, onTogglePin }: Not
           <button className="danger" type="button" disabled={saving} onClick={() => onDelete(note)}>删除</button>
         </div>
       </header>
-      {note.sourceExcerpt && <section className="note-opinion-card"><span>观点归纳</span><MarkdownRenderer content={note.sourceExcerpt} /></section>}
-      {note.sourceName !== "自我总结" && note.ownSummary && <section className="note-summary-card"><span>自我总结</span><MarkdownRenderer content={note.ownSummary} /></section>}
-      {note.contentMarkdown && <section className="note-body-card"><h3>观察计划</h3><MarkdownRenderer content={note.contentMarkdown} /></section>}
+      {note.sourceExcerpt && <section className="note-opinion-card"><span>观点归纳</span><MarkdownRenderer content={note.sourceExcerpt} dashSeparators /></section>}
+      {note.sourceName !== "自我总结" && note.ownSummary && <section className="note-summary-card"><span>自我总结</span><MarkdownRenderer content={note.ownSummary} dashSeparators /></section>}
+      {note.contentMarkdown && <section className="note-body-card"><h3>观察计划</h3><MarkdownRenderer content={note.contentMarkdown} dashSeparators /></section>}
     </section>
   );
 }
@@ -579,12 +579,7 @@ export function InvestmentNotes() {
       </section>
 
       {editing !== null && (
-        <div className="note-editor-overlay" role="presentation" onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !saving) {
-              setEditing(null);
-              setOpenSelect(null);
-            }
-          }}>
+        <div className="note-editor-overlay" role="presentation">
             <div className="note-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="note-editor-title">
               <form className="note-editor" onSubmit={saveNote}>
                 <div className="note-editor-head">
@@ -627,9 +622,7 @@ export function InvestmentNotes() {
       )}
 
       {deleteTarget !== null && (
-        <div className="note-delete-overlay" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget && !saving) setDeleteTarget(null);
-        }}>
+        <div className="note-delete-overlay" role="presentation">
           <section
             className="note-delete-dialog"
             role="alertdialog"

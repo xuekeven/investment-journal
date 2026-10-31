@@ -91,9 +91,6 @@ export function ContentOptionDialog({
     <div
       className="content-option-overlay"
       role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
     >
       <section
         className="content-option-dialog"

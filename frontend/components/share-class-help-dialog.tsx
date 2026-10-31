@@ -50,9 +50,6 @@ export function ShareClassHelpDialog({ onClose }: ShareClassHelpDialogProps) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="share-class-help-title"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
     >
       <div className="sync-info-sheet share-class-help-sheet">
         <header className="comparison-header">

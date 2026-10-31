@@ -1,9 +1,11 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -20,8 +22,11 @@ from app.models import (
     ContentOptionList,
     ContentOptionType,
     ContentOptionUpdate,
+    DeviationSeriesResponse,
     FundListResponse,
+    FundComparisonRow,
     FundBlacklist,
+    FundTagType,
     FundTagResponse,
     FundTagUpdate,
     HealthResponse,
@@ -65,6 +70,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 RepositoryDep = Annotated[FundRepository, Depends(get_repository)]
 SessionDep = Annotated[Session, Depends(get_db_session)]
@@ -134,9 +140,7 @@ def list_index_funds(
     if index is None:
         raise HTTPException(status_code=404, detail="Index not found")
 
-    funds = repository.list_funds(index_id)
-    if venue:
-        funds = [fund for fund in funds if fund.trading_venue.value == venue]
+    funds = repository.list_funds(index_id, venue)
     if exchange:
         funds = [fund for fund in funds if fund.exchange in exchange]
     if structure:
@@ -156,6 +160,11 @@ def list_index_funds(
         generated_at=datetime.now(UTC),
         data_mode=settings.data_mode,
     )
+
+
+@app.get(f"{settings.api_prefix}/tagged-funds/{{tag}}", response_model=list[FundComparisonRow])
+def list_tagged_funds(tag: FundTagType, repository: RepositoryDep) -> list[FundComparisonRow]:
+    return repository.list_tagged_funds(tag)
 
 
 @app.get(f"{settings.api_prefix}/comparisons", response_model=ComparisonResponse)
@@ -209,6 +218,28 @@ def get_fund_nav(
         fund_code=fund_code,
         items=repository.get_nav(fund_code, start_date, end_date, limit),
         source_name=fund.source_name,
+        generated_at=datetime.now(UTC),
+    )
+
+
+@app.get(
+    f"{settings.api_prefix}/funds/{{fund_code}}/deviations",
+    response_model=DeviationSeriesResponse,
+)
+def get_fund_deviations(fund_code: str, repository: RepositoryDep) -> DeviationSeriesResponse:
+    fund = repository.get_fund(fund_code)
+    if fund is None:
+        raise HTTPException(status_code=404, detail="Fund not found")
+    end_date = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    start_date = end_date - timedelta(days=365)
+    return DeviationSeriesResponse(
+        fund_code=fund_code,
+        start_date=start_date,
+        end_date=end_date,
+        items=(
+            repository.get_deviation_history(fund_code, start_date, end_date)
+            if fund.trading_venue == "场内" else []
+        ),
         generated_at=datetime.now(UTC),
     )
 

@@ -842,9 +842,6 @@ export function KnowledgeBase() {
         <div
           className="knowledge-editor-overlay"
           role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeEditor();
-          }}
         >
           <div
             className={`knowledge-editor-dialog${editing === "new" ? "" : " metadata-only"}`}
@@ -1001,9 +998,7 @@ export function KnowledgeBase() {
       )}
 
       {deleteTarget !== null && (
-        <div className="note-delete-overlay" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget && !saving) setDeleteTarget(null);
-        }}>
+        <div className="note-delete-overlay" role="presentation">
           <section
             className="note-delete-dialog"
             role="alertdialog"

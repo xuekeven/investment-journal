@@ -419,7 +419,7 @@ def enqueue_deviation_notifications(session: Session) -> int:
     ).order_by(LimitNotificationSubscription.id)))
     if not subscriptions:
         return 0
-    funds = PostgresFundRepository().list_funds()
+    funds = PostgresFundRepository().list_funds(venue="场内")
     today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
     count = 0
     for fund in funds:

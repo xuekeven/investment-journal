@@ -6,7 +6,8 @@ import { getFundDetailUrl } from "@/lib/fund-links";
 import type { FundSortKey, SortDirection } from "@/lib/fund-list";
 import type { FundComparisonRow, FundTag } from "@/lib/types";
 import { formatFundTagLabel } from "@/lib/fund-tag-values";
-import { CloseIcon } from "./icons";
+import { DeviationHistoryDialog } from "./deviation-history-dialog";
+import { CloseIcon, TrendIcon } from "./icons";
 import { SubscriptionTags } from "./subscription-tags";
 
 interface FundListProps {
@@ -53,6 +54,22 @@ function getReturn(fund: FundComparisonRow, period: string) {
 
 function ReturnValue({ value }: { value: number | null }) {
   return <span className={value === null ? "muted" : value >= 0 ? "positive" : "negative"}>{formatPercent(value)}</span>;
+}
+
+function DeviationBadge({ fund, onOpen }: { fund: FundComparisonRow; onOpen: () => void }) {
+  if (fund.estimatedDeviation === null) return null;
+  return (
+    <div className="deviation-inline">
+      <em className={fund.estimatedDeviation >= 0 ? "warn" : "negative"}
+        title={fund.deviationNavDate ? `采用 ${fund.closeDate} 收盘价和 ${fund.deviationNavDate} 正式净值` : undefined}>
+        偏离 {formatPercent(fund.estimatedDeviation)}
+      </em>
+      <button className="deviation-chart-trigger" type="button" onClick={onOpen}
+        aria-label={`查看${fund.displayName}近一年偏离率走势`} title="查看偏离率走势">
+        <TrendIcon />
+      </button>
+    </div>
+  );
 }
 
 const USER_TAGS: Array<{ value: FundTag; label: string }> = [
@@ -173,9 +190,6 @@ function FundEditDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="fund-edit-title"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
     >
       <div className="fund-edit-sheet">
         <header className="comparison-header">
@@ -336,6 +350,7 @@ export function FundTable({
   onOpenShareClassHelp,
 }: FundTableProps) {
   const [editingCode, setEditingCode] = useState<string | null>(null);
+  const [deviationFund, setDeviationFund] = useState<FundComparisonRow | null>(null);
   const closeEditor = useCallback(() => setEditingCode(null), []);
   const editingFund = funds.find((fund) => fund.code === editingCode) ?? null;
   const venueClass = funds.some((fund) => fund.tradingVenue === "场内")
@@ -458,7 +473,7 @@ export function FundTable({
                       </div>
                     </div>
                   )}
-                  {fund.estimatedDeviation !== null && <em className={fund.estimatedDeviation >= 0 ? "warn" : "negative"}>偏离 {formatPercent(fund.estimatedDeviation)}</em>}
+                  <DeviationBadge fund={fund} onOpen={() => setDeviationFund(fund)} />
                 </td>
                 <td className="fee-cell">
                   <strong>{fund.expenseRate === null ? "—" : `${fund.expenseRate.toFixed(2)}%`}</strong>
@@ -498,6 +513,7 @@ export function FundTable({
           onClose={closeEditor}
         />
       )}
+      {deviationFund && <DeviationHistoryDialog fund={deviationFund} onClose={() => setDeviationFund(null)} />}
     </>
   );
 }
@@ -511,6 +527,7 @@ export function FundCards({
   onOpenShareClassHelp,
 }: FundListProps) {
   const [editingCode, setEditingCode] = useState<string | null>(null);
+  const [deviationFund, setDeviationFund] = useState<FundComparisonRow | null>(null);
   const closeEditor = useCallback(() => setEditingCode(null), []);
   const editingFund = funds.find((fund) => fund.code === editingCode) ?? null;
 
@@ -575,6 +592,7 @@ export function FundCards({
                 </div>
               </div>
               {fund.closePrice !== null && <div><span>收盘价</span><strong>{formatNumber(fund.closePrice, 3)}</strong></div>}
+              {fund.estimatedDeviation !== null && <div className="card-deviation-row"><DeviationBadge fund={fund} onOpen={() => setDeviationFund(fund)} /></div>}
               <div><span>规模</span><strong>{fund.scaleBillionCny?.toFixed(2) ?? "—"} 亿</strong></div>
               <div><span>近1月</span><ReturnValue value={getReturn(fund, "1月")} /></div>
               <div><span>近3月</span><ReturnValue value={getReturn(fund, "3月")} /></div>
@@ -592,6 +610,7 @@ export function FundCards({
           onClose={closeEditor}
         />
       )}
+      {deviationFund && <DeviationHistoryDialog fund={deviationFund} onClose={() => setDeviationFund(null)} />}
     </>
   );
 }
