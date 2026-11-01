@@ -5,6 +5,7 @@ import { groupFundRowsByIndex } from "@/lib/fund-list";
 import { getFundDetailUrl } from "@/lib/fund-links";
 import {
   calculateHoldingProfitLoss,
+  calculateHoldingReturnRate,
   calculateRecurringInvestmentTotals,
   formatFundTagLabel,
   holdingCurrentPrice,
@@ -259,7 +260,7 @@ export function TaggedFundsDialog({
                             {tag === "holding" ? (
                               <>
                                 <th className="tagged-cost-column">现价/成本</th>
-                                <th className="tagged-profit-column">盈亏</th>
+                                <th className="tagged-profit-column">盈亏/收益率</th>
                               </>
                             ) : null}
                             {editing ? <th className="tagged-action-column">操作</th> : null}
@@ -271,11 +272,15 @@ export function TaggedFundsDialog({
                             const currentPrice = tag === "holding" ? holdingCurrentPrice(fund) : null;
                             const draftAmount = draftAmounts[fund.code]?.trim();
                             const draftCost = draftCosts[fund.code]?.trim();
+                            const holdingAmount = editing ? (draftAmount ? Number(draftAmount) : null) : fund.holdingAmount;
+                            const holdingCost = editing ? (draftCost ? Number(draftCost) : null) : fund.holdingCost;
                             const profit = tag === "holding" ? calculateHoldingProfitLoss(
-                              fund,
-                              editing ? (draftAmount ? Number(draftAmount) : null) : fund.holdingAmount,
-                              editing ? (draftCost ? Number(draftCost) : null) : fund.holdingCost,
+                              fund, holdingAmount, holdingCost,
                             ) : null;
+                            const returnRate = tag === "holding" ? calculateHoldingReturnRate(
+                              fund, holdingAmount, holdingCost,
+                            ) : null;
+                            const profitDirection = profit !== null && profit !== 0 ? profit : returnRate;
                             return (
                               <tr key={fund.id}>
                                 <td>
@@ -362,8 +367,11 @@ export function TaggedFundsDialog({
                                   </td>
                                 ) : null}
                                 {tag === "holding" ? (
-                                  <td className={`tagged-profit-cell ${profit === null ? "" : profit > 0 ? "positive" : profit < 0 ? "negative" : ""}`}>
-                                    {profit === null ? "—" : `${fund.currency === "美元" ? "$" : "¥"}${profit > 0 ? "+" : profit < 0 ? "-" : ""}${profitFormatter.format(Math.abs(profit))}`}
+                                  <td className={`tagged-profit-cell ${profitDirection === null ? "" : profitDirection > 0 ? "positive" : profitDirection < 0 ? "negative" : ""}`}>
+                                    <div className="tagged-profit-values">
+                                      <span>{profit === null ? "—" : `${fund.currency === "美元" ? "$" : "¥"}${profit > 0 ? "+" : profit < 0 ? "-" : ""}${profitFormatter.format(Math.abs(profit))}`}</span>
+                                      <span className="tagged-return-rate">{returnRate === null ? "—" : `${returnRate > 0 ? "+" : ""}${returnRate.toFixed(2)}%`}</span>
+                                    </div>
                                   </td>
                                 ) : null}
                                 {editing ? (

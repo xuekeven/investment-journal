@@ -12,6 +12,7 @@ from app.sync.company_official_nav import (
     parse_chinaamc_nav,
     parse_cifm_nav,
     parse_china_universal_nav,
+    parse_efunds_nav,
     parse_gf_nav,
     parse_harvest_nav,
     parse_huaan_nav,
@@ -197,3 +198,59 @@ def test_parses_china_universal_official_nav() -> None:
 
     assert records[0].nav_date == date(2026, 8, 27)
     assert records[0].unit_nav == Decimal("1.7504")
+
+
+def test_parses_efunds_usd_nav_with_exact_share_code() -> None:
+    script = (
+        'mk_012921_1y="0_1_2_3_4;'
+        '20261029_2.16032800_0.4958_0.4958_-1.63;";'
+    )
+    records = parse_efunds_nav(script, "012921", "1y")
+
+    assert len(records) == 1
+    assert records[0].nav_date == date(2026, 10, 29)
+    assert records[0].unit_nav == Decimal("0.4958")
+    assert records[0].accumulated_nav == Decimal("0.4958")
+    assert records[0].source_url == "https://www.efunds.com.cn/fund/012921.shtml"
+
+    try:
+        parse_efunds_nav(script, "012923", "1y")
+    except RuntimeError as exc:
+        assert "did not match share 012923" in str(exc)
+    else:
+        raise AssertionError("another share's NAV must not be accepted")
+
+
+def test_efunds_fallback_merges_archive_and_recent_nav() -> None:
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        if str(request.url).endswith("012921_1y.js"):
+            return httpx.Response(
+                200,
+                text='mk_012921_1y="0_1_2_3_4;'
+                '20251029_1.0_0.3500_0.3500_0.00;'
+                '20261029_2.0_0.4958_0.4958_1.00;";',
+            )
+        return httpx.Response(
+            200,
+            text='mk_012921_all="0_1_2_3_4;'
+            '20250929_1.0_0.3400_0.3400_0.00;'
+            '20251029_1.0_0.3499_0.3499_0.00;";',
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        records = OfficialCompanyNavFetcher(client).fetch(
+            "易方达基金管理有限公司",
+            "012921",
+            date(2025, 9, 28),
+            date(2026, 11, 2),
+        )
+
+    assert len(requests) == 2
+    assert [(record.nav_date, record.unit_nav) for record in records] == [
+        (date(2025, 9, 29), Decimal("0.3400")),
+        (date(2025, 10, 29), Decimal("0.3500")),
+        (date(2026, 10, 29), Decimal("0.4958")),
+    ]

@@ -192,12 +192,12 @@ const SYNC_ROWS: Array<{
           {
             label: "上交所",
             url: "https://etf.sse.com.cn/fundlist/",
-            description: "获取收盘价、基金规模和行情日期",
+            description: "获取收盘价、基金金额规模和交易日期",
           },
           {
             label: "证监会基金电子披露网站",
             url: "http://eid.csrc.gov.cn/fund",
-            description: "中获取正式单位净值、净值日期及历史净值",
+            description: "获取正式单位净值、净值日期及历史净值",
           },
         ],
         ending: "；根据正式净值计算区间收益率。",
@@ -230,15 +230,15 @@ const SYNC_ROWS: Array<{
           {
             label: "深交所",
             url: "https://www.szse.cn/www/market/product/list/etfList/index.html",
-            description: "获取收盘价、正式单位净值、基金份额规模和交易日期",
+            description: "获取收盘价、基金份额规模和交易日期",
           },
           {
             label: "证监会基金电子披露网站",
             url: "http://eid.csrc.gov.cn/fund",
-            description: "中补充正式单位净值及历史净值",
+            description: "获取正式单位净值、净值日期及历史净值",
           },
         ],
-        ending: "；结合正式净值估算人民币基金规模，并计算区间收益率。",
+        ending: "；根据基金份额规模和正式单位净值估算基金金额规模，并计算区间收益率。",
       },
     ],
   },
@@ -257,7 +257,7 @@ const SYNC_ROWS: Array<{
           {
             label: "证监会基金电子披露网站",
             url: "http://eid.csrc.gov.cn/fund",
-            description: "核验基金全称、管理人和合同生效日期，发现各份额，并从最新产品资料概要和季度报告更新费率、基金规模",
+            description: "核验基金全称、管理人和合同生效日期；从产品资料概要识别同一基金下不同类别、币种的份额及其代码，并更新费率；从最新季度报告按基金份额更新基金金额",
           },
         ],
       },
@@ -267,7 +267,7 @@ const SYNC_ROWS: Array<{
         sources: [{
           label: "证监会基金电子披露网站",
           url: "http://eid.csrc.gov.cn/fund",
-          description: "获取各份额的正式净值及历史净值，并解析申购公告中的状态与限额",
+          description: "获取各基金份额的正式净值及历史净值，解析基金公告获取其状态与限额",
         }],
         ending: "；美元净值缺失时按规则从基金公司官网补充，并根据正式净值计算区间收益率。",
       },

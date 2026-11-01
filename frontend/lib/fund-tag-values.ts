@@ -20,6 +20,19 @@ export function calculateHoldingProfitLoss(
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
+export function calculateHoldingReturnRate(
+  fund: FundComparisonRow,
+  amount = fund.holdingAmount,
+  cost = fund.holdingCost,
+): number | null {
+  const price = holdingCurrentPrice(fund);
+  if (price === null || amount === null || cost === null
+    || !Number.isFinite(price) || !Number.isFinite(amount) || !Number.isFinite(cost)
+    || amount <= 0 || cost <= 0) return null;
+  const rounded = Math.round((price / cost - 1) * 10_000) / 100;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
 export function formatHoldingAmountLabel(fund: FundComparisonRow) {
   return fund.holdingAmount === null
     ? "持有"

@@ -30,16 +30,12 @@ from app.sync.csrc_funds import EID_NAV_URL
 from app.sync.sse_details import calculate_return_metrics
 from app.sync.sse_funds import ASIA_SHANGHAI, SseNavRecord
 from app.sync.szse_funds import (
-    SZSE_REPORT_URL,
     SZSE_SOURCE_URL,
-    clean_report_value,
     fetch_szse_funds,
 )
 from app.sync.szse_quotes import fetch_quote_history, quote_values
 
 
-SZSE_NAV_CATALOG_ID = "1785_child"
-SZSE_NAV_SOURCE_URL = "https://www.szse.cn/market/fund/list/stockFundList/index.html"
 RETURN_CALCULATION_VERSION = "szse-official-nav-simple-return-v1"
 NAV_BACKFILL_DAYS = 400
 NAV_PAGE_SIZE = 500
@@ -64,46 +60,6 @@ def decimal_or_none(value: Any) -> Decimal | None:
     except InvalidOperation as exc:
         raise RuntimeError(f"Invalid SZSE numeric value: {value!r}") from exc
     return result
-
-
-def parse_nav_report(payload: Any, ticker: str) -> list[SseNavRecord]:
-    if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
-        raise RuntimeError(f"SZSE NAV report returned an unexpected payload for {ticker}")
-    report = payload[0]
-    if report.get("error"):
-        raise RuntimeError(f"SZSE NAV report error for {ticker}: {report['error']}")
-
-    records: list[SseNavRecord] = []
-    for row in report.get("data") or []:
-        code = clean_report_value(row.get("fund_code"))
-        if code != ticker:
-            continue
-        try:
-            nav_date = date.fromisoformat(clean_report_value(row.get("nav_date")))
-        except ValueError as exc:
-            raise RuntimeError(f"Invalid SZSE NAV date for {ticker}") from exc
-        unit_nav = decimal_or_none(clean_report_value(row.get("nav_per_share")))
-        if unit_nav is None or unit_nav <= 0:
-            raise RuntimeError(f"Invalid SZSE NAV value for {ticker} on {nav_date}")
-        records.append(SseNavRecord(code=ticker, nav_date=nav_date, unit_nav=unit_nav))
-    if not records:
-        raise RuntimeError(f"SZSE NAV report did not contain valid rows for {ticker}")
-    return sorted(records, key=lambda item: item.nav_date)
-
-
-def fetch_nav_records(client: httpx.Client, ticker: str) -> tuple[list[SseNavRecord], str]:
-    response = client.get(
-        SZSE_REPORT_URL,
-        params={
-            "SHOWTYPE": "JSON",
-            "CATALOGID": SZSE_NAV_CATALOG_ID,
-            "TABKEY": "tab1",
-            "txtDm": ticker,
-        },
-        headers={"Referer": SZSE_NAV_SOURCE_URL},
-    )
-    response.raise_for_status()
-    return parse_nav_report(response.json(), ticker), str(response.request.url)
 
 
 def eid_nav_query_data(ticker: str, start_date: date, end_date: date) -> str:
@@ -146,25 +102,21 @@ def parse_eid_nav_report(payload: Any, ticker: str) -> list[SseNavRecord]:
 def fetch_eid_nav_records(
     client: httpx.Client, ticker: str, end_date: date
 ) -> tuple[list[SseNavRecord], str]:
-    response = client.get(
-        EID_NAV_URL,
-        params={
-            "aoData": eid_nav_query_data(
-                ticker, end_date - timedelta(days=NAV_BACKFILL_DAYS), end_date
-            )
-        },
-    )
-    response.raise_for_status()
-    return parse_eid_nav_report(response.json(), ticker), str(response.request.url)
-
-
-def merge_nav_records(*groups: list[SseNavRecord]) -> list[SseNavRecord]:
-    records = {
-        record.nav_date: record
-        for group in groups
-        for record in group
+    query = {
+        "aoData": eid_nav_query_data(
+            ticker, end_date - timedelta(days=NAV_BACKFILL_DAYS), end_date
+        )
     }
-    return [records[item] for item in sorted(records)]
+    for attempt in range(3):
+        response = client.get(EID_NAV_URL, params=query)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("success") is not False:
+            return parse_eid_nav_report(payload, ticker), EID_NAV_URL
+        message = str(payload.get("message") or "")
+        if "请求繁忙" not in message or attempt == 2:
+            raise RuntimeError(message or "EID NAV query failed")
+    raise RuntimeError("EID NAV query failed")
 
 
 def latest_nav_on_or_before(
@@ -407,15 +359,9 @@ def run_sync(
                 except (httpx.HTTPError, RuntimeError, ValueError) as exc:
                     logger.warning("SZSE quote unavailable for %s: %s", ticker, exc)
                     quote_rows = []
-                try:
-                    szse_nav_records, _ = fetch_nav_records(client, ticker)
-                except (httpx.HTTPError, RuntimeError, ValueError) as exc:
-                    logger.warning("SZSE NAV unavailable for %s: %s", ticker, exc)
-                    szse_nav_records = []
-                eid_nav_records, nav_source_url = fetch_eid_nav_records(
-                    client, ticker, list_snapshot_date
+                nav_records, nav_source_url = fetch_eid_nav_records(
+                    client, ticker, datetime.now(ASIA_SHANGHAI).date()
                 )
-                nav_records = merge_nav_records(eid_nav_records, szse_nav_records)
 
                 scale_row = scale_by_ticker.get(ticker)
                 scale_wan_shares = decimal_or_none(scale_row.get("dqgm")) if scale_row else None

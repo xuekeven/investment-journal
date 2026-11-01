@@ -14,6 +14,7 @@ import {
 import type { FundComparisonRow } from "./types.ts";
 import {
   calculateHoldingProfitLoss,
+  calculateHoldingReturnRate,
   calculateRecurringInvestmentTotals,
   formatFundTagLabel,
   holdingCurrentPrice,
@@ -385,10 +386,14 @@ test("holding profit uses the venue's current price and needs complete data", ()
   const offExchangeFund = fund({ tradingVenue: "场外", closePrice: 1.02, nav: 0.89, holdingAmount: 400, holdingCost: 1 });
   assert.equal(holdingCurrentPrice(exchangeFund), 1.02);
   assert.equal(calculateHoldingProfitLoss(exchangeFund), 45);
+  assert.equal(calculateHoldingReturnRate(exchangeFund), 2);
   assert.equal(holdingCurrentPrice(offExchangeFund), 0.89);
   assert.equal(calculateHoldingProfitLoss(offExchangeFund), -44);
+  assert.equal(calculateHoldingReturnRate(offExchangeFund), -11);
   assert.equal(calculateHoldingProfitLoss(fund({ nav: null, tradingVenue: "场外", holdingAmount: 1, holdingCost: 1 })), null);
   assert.equal(calculateHoldingProfitLoss(fund({ holdingAmount: 1, holdingCost: null })), null);
+  assert.equal(calculateHoldingReturnRate(fund({ holdingAmount: 1, holdingCost: 0 })), null);
+  assert.equal(calculateHoldingReturnRate(fund({ holdingAmount: 0, holdingCost: 1 })), null);
 });
 
 test("removing one fund tag preserves the other tags and their values", () => {

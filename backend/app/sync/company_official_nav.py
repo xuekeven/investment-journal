@@ -31,6 +31,9 @@ CHINA_UNIVERSAL_NAV_URL = (
     "https://static.99fund.com/productcenter/v1/new/compose/funds/single/curve/"
     "yield/start-to-end/index/collections"
 )
+EFUNDS_FUND_URL = "https://www.efunds.com.cn/fund/{code}.shtml"
+EFUNDS_RECENT_NAV_URL = "https://cdn.efunds.com.cn/market/2.0/{code}_1y.js"
+EFUNDS_ARCHIVE_NAV_URL = "https://cdn.efunds.com.cn/market/2.0/his/{code}_all.js"
 
 BROWSER_HEADERS = {
     "User-Agent": (
@@ -266,6 +269,37 @@ def parse_china_universal_nav(
     return records
 
 
+def parse_efunds_nav(script: str, code: str, period: str) -> list[OfficialNavRecord]:
+    match = re.fullmatch(
+        rf'\s*mk_{re.escape(code)}_{re.escape(period)}="([^"]*)";?\s*',
+        script,
+    )
+    if match is None:
+        raise RuntimeError(f"E Fund NAV data did not match share {code}")
+    source_url = EFUNDS_FUND_URL.format(code=code)
+    records: list[OfficialNavRecord] = []
+    for row in match.group(1).split(";"):
+        if not row or row == "0_1_2_3_4":
+            continue
+        fields = row.split("_")
+        if len(fields) != 5:
+            raise RuntimeError(f"E Fund NAV row was invalid for {code}")
+        nav_date = _parse_date(fields[0])
+        unit_nav = _positive_decimal(fields[2])
+        if nav_date is None or unit_nav is None:
+            raise RuntimeError(f"E Fund NAV row lacked date or unit NAV for {code}")
+        records.append(
+            OfficialNavRecord(
+                code,
+                nav_date,
+                unit_nav,
+                _positive_decimal(fields[3]),
+                source_url,
+            )
+        )
+    return records
+
+
 def _deduplicate(
     records: list[OfficialNavRecord], start_date: date, end_date: date
 ) -> list[OfficialNavRecord]:
@@ -327,6 +361,8 @@ class OfficialCompanyNavFetcher:
             records = self._fetch_cifm(code)
         elif "汇添富基金" in fund_company:
             records = self._fetch_china_universal(code, start_date, end_date)
+        elif "易方达基金" in fund_company:
+            records = self._fetch_efunds(code, start_date)
         else:
             return []
         return _deduplicate(records, start_date, end_date)
@@ -579,3 +615,25 @@ class OfficialCompanyNavFetcher:
         )
         response.raise_for_status()
         return parse_china_universal_nav(response.json(), code)
+
+    def _fetch_efunds(
+        self, code: str, start_date: date
+    ) -> list[OfficialNavRecord]:
+        fund_url = EFUNDS_FUND_URL.format(code=code)
+        response = self.client.get(
+            EFUNDS_RECENT_NAV_URL.format(code=code),
+            headers={**BROWSER_HEADERS, "Referer": fund_url},
+        )
+        response.raise_for_status()
+        recent = parse_efunds_nav(response.text, code, "1y")
+        if recent and min(record.nav_date for record in recent) <= start_date:
+            return recent
+
+        response = self.client.get(
+            EFUNDS_ARCHIVE_NAV_URL.format(code=code),
+            headers={**BROWSER_HEADERS, "Referer": fund_url},
+        )
+        response.raise_for_status()
+        archive = parse_efunds_nav(response.text, code, "all")
+        by_date = {record.nav_date: record for record in (*archive, *recent)}
+        return [by_date[key] for key in sorted(by_date)]

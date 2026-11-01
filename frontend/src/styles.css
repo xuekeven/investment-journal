@@ -542,26 +542,24 @@ a { color: inherit; text-decoration: none; }
 }
 .tagged-funds-table tr:last-child td { border-bottom: 0; }
 .tagged-funds-table th { color: #65716b; background: #f7f9f7; font-size: 14px; font-weight: 650; }
-.tagged-funds-table .tagged-code-column { width: 105px; }
-.tagged-funds-table .tagged-name-column { width: 315px; }
-.tagged-funds-table.has-cost-column .tagged-name-column { width: 225px; }
+.tagged-funds-table .tagged-code-column { width: 94px; }
 .tagged-funds-table .tagged-value-column { width: 150px; }
 .tagged-funds-table.has-cost-column .tagged-value-column { width: 100px; }
 .tagged-funds-table .tagged-cost-column { width: 100px; }
-.tagged-funds-table .tagged-profit-column { width: 85px; }
+.tagged-funds-table .tagged-profit-column { width: 112px; }
 .tagged-funds-table .tagged-action-column { width: 64px; text-align: center; }
 .tagged-funds-table .tagged-type-column { width: 90px; }
 .tagged-funds-table.has-cost-column .tagged-type-column { width: 80px; }
 .tagged-funds-table .tagged-currency-column { width: 80px; }
 .tagged-funds-table .tagged-limit-column { width: 120px; }
-.tagged-funds-table.has-cost-column.has-action-column .tagged-code-column { width: 100px; }
-.tagged-funds-table.has-cost-column.has-action-column .tagged-name-column { width: 210px; }
 .tagged-funds-table.has-cost-column.has-action-column .tagged-currency-column { width: 75px; }
 .tagged-funds-table.has-cost-column.has-action-column .tagged-limit-column { width: 115px; }
 .tagged-funds-table.has-cost-column.has-action-column .tagged-value-column { width: 100px; }
 .tagged-funds-table.has-cost-column.has-action-column .tagged-cost-column { width: 100px; }
-.tagged-funds-table.has-cost-column.has-action-column .tagged-profit-column { width: 85px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-profit-column { width: 112px; }
 .tagged-funds-table.has-cost-column.has-action-column .tagged-action-column { width: 60px; }
+.tagged-funds-table.has-cost-column.has-action-column .tagged-value-cell,
+.tagged-funds-table.has-cost-column.has-action-column .tagged-cost-cell { padding-inline: 8px; }
 .tagged-funds-table td { color: #56645d; font-size: 14px; }
 .tagged-funds-table td > strong { display: block; color: var(--ink); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .tagged-funds-table td > small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
@@ -576,10 +574,12 @@ a { color: inherit; text-decoration: none; }
 .tagged-cost-values { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .tagged-current-price { color: var(--ink); font-weight: 650; }
 .tagged-profit-cell { font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
-.tagged-profit-cell.positive { color: #087346; }
-.tagged-profit-cell.negative { color: #b83c32; }
+.tagged-profit-values { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.tagged-return-rate { font-size: 12px; }
+.tagged-profit-cell.positive { color: #b83c32; }
+.tagged-profit-cell.negative { color: #087346; }
 .tagged-cost-cell input {
-  width: 70px; height: 32px; padding: 0 8px; border: 1px solid #ccd8d1; border-radius: 8px;
+  width: 82px; height: 32px; padding: 0 8px; border: 1px solid #ccd8d1; border-radius: 8px;
   color: var(--ink); background: white; font-size: 14px; outline: 0;
 }
 .tagged-cost-cell input:focus { border-color: #83b89d; box-shadow: 0 0 0 2px rgba(17,121,77,.08); }
@@ -590,7 +590,7 @@ a { color: inherit; text-decoration: none; }
   width: 88px; height: 32px; padding: 0 8px; border: 1px solid #ccd8d1; border-radius: 8px;
   color: var(--ink); background: white; font-size: 14px; outline: 0;
 }
-.tagged-funds-table.has-cost-column .tagged-amount-editor input { width: 78px; }
+.tagged-funds-table.has-cost-column .tagged-amount-editor input { width: 82px; }
 .tagged-amount-editor input:focus { border-color: #83b89d; box-shadow: 0 0 0 2px rgba(17,121,77,.08); }
 .tagged-limit-muted { color: #9da6a1; }
 .tagged-funds-state { min-height: 300px; display: grid; place-content: center; justify-items: center; text-align: center; }
@@ -636,7 +636,6 @@ a { color: inherit; text-decoration: none; }
 .sync-info-content { padding: 22px 24px 24px; overflow-y: auto; }
 .sync-info-section { padding: 0 0 18px; }
 .sync-info-section:last-child { padding-bottom: 0; }
-.sync-info-section + .sync-info-section { padding-top: 18px; }
 .sync-info-section h3 { margin: 0 0 8px; color: var(--ink); font-size: 16px; }
 .sync-info-section p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
 .sync-task-control { margin-left: 10px; display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; }
@@ -680,8 +679,8 @@ a { color: inherit; text-decoration: none; }
   text-decoration-color: rgba(7,90,56,.28); text-underline-offset: 3px;
 }
 .sync-task-table .sync-task-control { width: 100%; margin-left: 0; justify-content: flex-start; flex-wrap: wrap; gap: 4px; }
-.sync-task-table .sync-run-button { flex: 3 1 0; min-width: 0; white-space: normal; line-height: 1.3; }
-.sync-task-table .sync-history-button { flex: 2 1 0; min-width: 0; }
+.sync-task-table .sync-run-button { flex: 3 1 0; min-width: 0; white-space: normal; line-height: 1.3; text-align: left; }
+.sync-task-table .sync-history-button { flex: 2 1 0; min-width: 0; text-align: right; }
 .sync-task-table .sync-task-status { width: 100%; text-align: left; }
 .sync-history-overlay {
   position: fixed; z-index: 50; inset: 0; padding: 24px;
@@ -2022,6 +2021,13 @@ a { color: inherit; text-decoration: none; }
 .asset-record-table thead th:nth-child(6) { width: 132px; }
 .asset-record-table thead th:last-child { width: 84px; border-radius: 0 12px 0 0; text-align: center; }
 .asset-holdings-card .asset-record-table tbody .asset-record-account-cell { width: 230px; min-width: 230px; padding: 12px; vertical-align: top; background: #eef5f1; }
+.asset-record-account-name { display: flex; align-items: flex-end; gap: 7px; }
+.asset-record-account-name label { flex: 1; min-width: 0; }
+.asset-record-account-name .asset-account-drag-handle { flex: 0 0 26px; width: 26px; height: 38px; padding: 0; border: 1px solid var(--line); border-radius: 8px; color: #7d8b84; background: white; font: inherit; font-size: 17px; cursor: grab; }
+.asset-record-account-name .asset-account-drag-handle:active { cursor: grabbing; }
+.asset-record-account-name .asset-account-drag-handle:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.asset-holdings-card .asset-record-table tbody .asset-record-account-cell.asset-record-account-dragging { opacity: .55; }
+.asset-holdings-card .asset-record-table tbody .asset-record-account-cell.asset-record-account-drag-over { background: #e2f3e9; box-shadow: inset 0 3px var(--green); }
 .asset-record-account-cell label { display: flex; flex-direction: column; gap: 5px; }
 .asset-record-account-cell label + label { margin-top: 9px; }
 .asset-record-account-cell label > span { color: #59685f; font-size: 10px; font-weight: 700; }

@@ -556,6 +556,7 @@ type RecordPosition = AssetPositionConfig & {
 };
 
 type RecordAccount = Omit<AssetAccountConfig, "positions"> & {
+  clientKey?: string;
   positions: RecordPosition[];
 };
 
@@ -584,6 +585,9 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
   const [options, setOptions] = useState<AssetOptionState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const nextAccountKey = useRef(0);
+  const [draggedAccountIndex, setDraggedAccountIndex] = useState<number | null>(null);
+  const [dragOverAccountIndex, setDragOverAccountIndex] = useState<number | null>(null);
   const [draggedPosition, setDraggedPosition] = useState<{ accountIndex: number; positionIndex: number } | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<{ accountIndex: number; positionIndex: number } | null>(null);
 
@@ -616,6 +620,7 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
   function addAccount(region: "境内" | "境外") {
     setAccounts((current) => [...(current ?? []), {
       id: null,
+      clientKey: `new-account-${++nextAccountKey.current}`,
       name: "",
       region,
       currency: "人民币",
@@ -625,6 +630,34 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
       sortOrder: current?.length ?? 0,
       positions: [],
     }]);
+  }
+
+  function moveAccount(sourceIndex: number, targetIndex: number) {
+    setAccounts((current) => {
+      if (!current || sourceIndex === targetIndex || current[sourceIndex]?.region !== current[targetIndex]?.region) return current;
+      const reordered = [...current];
+      const [moved] = reordered.splice(sourceIndex, 1);
+      reordered.splice(targetIndex, 0, moved);
+      return reordered;
+    });
+  }
+
+  function dropAccount(event: React.DragEvent<HTMLTableCellElement>, targetIndex: number) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (draggedAccountIndex !== null) moveAccount(draggedAccountIndex, targetIndex);
+    setDraggedAccountIndex(null);
+    setDragOverAccountIndex(null);
+  }
+
+  function moveAccountWithKeyboard(event: React.KeyboardEvent<HTMLButtonElement>, accountIndex: number) {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    const region = accounts?.[accountIndex]?.region;
+    const regionIndexes = accounts?.flatMap((account, index) => account.region === region ? [index] : []) ?? [];
+    const nextIndex = regionIndexes[regionIndexes.indexOf(accountIndex) + (event.key === "ArrowUp" ? -1 : 1)];
+    if (nextIndex === undefined) return;
+    event.preventDefault();
+    moveAccount(accountIndex, nextIndex);
   }
 
   function dropPosition(event: React.DragEvent<HTMLTableRowElement>, accountIndex: number, targetIndex: number) {
@@ -664,22 +697,26 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
     try {
       const savedConfig = await updateAssetConfig({
         targets: config.targets,
-        accounts: accounts.map((account, accountIndex) => ({
-          ...account,
-          sortOrder: accountIndex,
-          positions: account.positions.map((position, positionIndex) => ({
-            id: position.id,
-            name: position.name,
-            assetClass: position.assetClass,
-            assetClassOptionId: position.assetClassOptionId,
-            purpose: position.purpose,
-            purposeOptionId: position.purposeOptionId,
-            riskLevel: position.riskLevel,
-            riskOptionId: position.riskOptionId,
-            isInvestable: position.isInvestable,
-            sortOrder: positionIndex,
-          })),
-        })),
+        accounts: accounts.map((account, accountIndex) => {
+          const accountConfig = { ...account };
+          delete accountConfig.clientKey;
+          return {
+            ...accountConfig,
+            sortOrder: accountIndex,
+            positions: account.positions.map((position, positionIndex) => ({
+              id: position.id,
+              name: position.name,
+              assetClass: position.assetClass,
+              assetClassOptionId: position.assetClassOptionId,
+              purpose: position.purpose,
+              purposeOptionId: position.purposeOptionId,
+              riskLevel: position.riskLevel,
+              riskOptionId: position.riskOptionId,
+              isInvestable: position.isInvestable,
+              sortOrder: positionIndex,
+            })),
+          };
+        }),
       }, mode === "edit");
       const savedAccountsById = new Map(savedConfig.accounts.filter((account) => account.id !== null).map((account) => [account.id, account]));
       const payload: AssetSnapshotPayload = {
@@ -723,7 +760,7 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
                       <thead><tr><th>{region}账户</th><th>投资品种</th><th>风险等级</th><th>资金用途</th><th>可支配</th><th>当前金额</th><th>操作</th></tr></thead>
                       <tbody>
                         {accounts.map((account, accountIndex) => account.region === region ? (
-                          <Fragment key={account.id ?? `new-account-${accountIndex}`}>
+                          <Fragment key={account.id ?? account.clientKey ?? `new-account-${accountIndex}`}>
                             {(account.positions.length ? account.positions : [null]).map((position, positionIndex) => (
                               <tr
                                 className={[positionIndex === 0 ? "asset-record-account-start" : "", draggedPosition?.accountIndex === accountIndex && draggedPosition.positionIndex === positionIndex ? "asset-record-position-dragging" : "", dragOverPosition?.accountIndex === accountIndex && dragOverPosition.positionIndex === positionIndex ? "asset-record-position-drag-over" : ""].filter(Boolean).join(" ") || undefined}
@@ -732,8 +769,32 @@ function RecordDialog({ dashboard, mode, onClose, onSaved }: { dashboard: AssetD
                                 onDrop={(event) => position && dropPosition(event, accountIndex, positionIndex)}
                               >
                                 {positionIndex === 0 && (
-                                  <th className="asset-record-account-cell" rowSpan={Math.max(account.positions.length, 1) + 1}>
-                                    <label><span>账户名称</span><input value={account.name} onChange={(event) => updateAccount(accountIndex, { name: event.target.value })} required /></label>
+                                  <th
+                                    className={["asset-record-account-cell", draggedAccountIndex === accountIndex ? "asset-record-account-dragging" : "", dragOverAccountIndex === accountIndex ? "asset-record-account-drag-over" : ""].filter(Boolean).join(" ")}
+                                    rowSpan={Math.max(account.positions.length, 1) + 1}
+                                    onDragOver={(event) => {
+                                      if (draggedAccountIndex === null || accounts[draggedAccountIndex]?.region !== region) return;
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      event.dataTransfer.dropEffect = "move";
+                                      setDragOverAccountIndex(accountIndex);
+                                    }}
+                                    onDragLeave={() => setDragOverAccountIndex((current) => current === accountIndex ? null : current)}
+                                    onDrop={(event) => dropAccount(event, accountIndex)}
+                                  >
+                                    <div className="asset-record-account-name">
+                                      <button className="asset-account-drag-handle" type="button" draggable
+                                        aria-label={`调整${account.name || region + "账户"}顺序`} title="拖动或用上下方向键调整账户顺序"
+                                        onDragStart={(event) => {
+                                          setDraggedAccountIndex(accountIndex);
+                                          event.dataTransfer.effectAllowed = "move";
+                                          event.dataTransfer.setData("text/plain", `asset-account:${accountIndex}`);
+                                        }}
+                                        onDragEnd={() => { setDraggedAccountIndex(null); setDragOverAccountIndex(null); }}
+                                        onKeyDown={(event) => moveAccountWithKeyboard(event, accountIndex)}
+                                      ><span aria-hidden="true">⠿</span></button>
+                                      <label><span>账户名称</span><input value={account.name} onChange={(event) => updateAccount(accountIndex, { name: event.target.value })} required /></label>
+                                    </div>
                                     <div className="asset-record-account-totals">
                                       <label><span>资产类别</span><AssetSelect id={`record-account-category-${accountIndex}`} value={String(account.assetCategoryOptionId)} options={selectOptions(options.assetCategories)} onChange={(value) => { const selected = options.assetCategories.find((item) => item.id === Number(value)); if (selected) updateAccount(accountIndex, { assetCategory: selected.value, assetCategoryOptionId: Number(value) }); }} /></label>
                                       <label><span>当前总额</span><output>{formatAmount(account.positions.reduce((total, item) => total + Number(item.amount || 0), 0))}</output></label>
