@@ -37,7 +37,7 @@ from app.sync.szse_quotes import fetch_quote_history, quote_values
 
 
 RETURN_CALCULATION_VERSION = "szse-official-nav-simple-return-v1"
-NAV_BACKFILL_DAYS = 400
+NAV_LOOKBACK_DAYS = 15
 NAV_PAGE_SIZE = 500
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ def fetch_eid_nav_records(
 ) -> tuple[list[SseNavRecord], str]:
     query = {
         "aoData": eid_nav_query_data(
-            ticker, end_date - timedelta(days=NAV_BACKFILL_DAYS), end_date
+            ticker, end_date - timedelta(days=NAV_LOOKBACK_DAYS), end_date
         )
     }
     for attempt in range(3):
@@ -112,6 +112,8 @@ def fetch_eid_nav_records(
         response.raise_for_status()
         payload = response.json()
         if payload.get("success") is not False:
+            if not payload.get("aaData"):
+                return [], EID_NAV_URL
             return parse_eid_nav_report(payload, ticker), EID_NAV_URL
         message = str(payload.get("message") or "")
         if "请求繁忙" not in message or attempt == 2:

@@ -43,7 +43,7 @@ from app.sync.sse_funds import (
 SSE_SNAPSHOT_URL = "https://yunhq.sse.com.cn:32042/v1/sh1/snap"
 SSE_DAYK_URL = "https://yunhq.sse.com.cn:32042/v1/sh1/dayk"
 EID_NAV_URL = "http://eid.csrc.gov.cn/fund/disclose/getPublicFundJZInfoMore.do"
-EID_NAV_BACKFILL_DAYS = 400
+EID_NAV_LOOKBACK_DAYS = 15
 EID_NAV_PAGE_SIZE = 500
 SSE_SNAPSHOT_SELECT = "name,last,chg_rate,change,open,prev_close,high,low,volume,amount"
 TARGET_FAMILY_IDS = tuple(target.family_id for target in TARGETS) + ("other-qdii",)
@@ -221,7 +221,7 @@ def fetch_eid_nav_records(
             EID_NAV_URL,
             params={
                 "aoData": eid_nav_query_data(
-                    ticker, end_date - timedelta(days=EID_NAV_BACKFILL_DAYS), end_date
+                    ticker, end_date - timedelta(days=EID_NAV_LOOKBACK_DAYS), end_date
                 )
             },
         )
@@ -232,6 +232,8 @@ def fetch_eid_nav_records(
             break
         if "请求繁忙" not in message or attempt == 2:
             raise RuntimeError(message or "EID NAV query failed")
+    if not payload.get("aaData"):
+        return [], EID_NAV_URL
     return parse_eid_nav_report(payload, ticker), EID_NAV_URL
 
 

@@ -2,11 +2,13 @@ from datetime import date
 from decimal import Decimal
 import json
 
+import httpx
 import pytest
 
 from app.sync.sse_details import (
     calculate_return_metrics,
     eid_nav_query_data,
+    fetch_eid_nav_records,
     is_legacy_iopv_nav_source,
     merge_product_summary_fee_rates,
     parse_eid_nav_report,
@@ -124,6 +126,26 @@ def test_eid_nav_query_and_parser_use_formal_date_and_exact_code() -> None:
     assert [(record.nav_date, record.unit_nav) for record in records] == [
         (date(2026, 9, 3), Decimal("2.4849"))
     ]
+
+
+def test_eid_nav_fetch_only_reads_recent_fifteen_days() -> None:
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"aaData": []})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        records, _ = fetch_eid_nav_records(client, "513500", date(2026, 11, 2))
+
+    assert records == []
+    assert len(requests) == 1
+    query = {
+        item["name"]: item["value"]
+        for item in json.loads(requests[0].url.params["aoData"])
+    }
+    assert query["startDate"] == "2026-10-18"
+    assert query["endDate"] == "2026-11-02"
 
 
 def test_identifies_only_legacy_sse_iopv_nav_sources() -> None:

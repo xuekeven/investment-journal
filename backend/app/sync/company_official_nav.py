@@ -33,7 +33,6 @@ CHINA_UNIVERSAL_NAV_URL = (
 )
 EFUNDS_FUND_URL = "https://www.efunds.com.cn/fund/{code}.shtml"
 EFUNDS_RECENT_NAV_URL = "https://cdn.efunds.com.cn/market/2.0/{code}_1y.js"
-EFUNDS_ARCHIVE_NAV_URL = "https://cdn.efunds.com.cn/market/2.0/his/{code}_all.js"
 
 BROWSER_HEADERS = {
     "User-Agent": (
@@ -625,15 +624,4 @@ class OfficialCompanyNavFetcher:
             headers={**BROWSER_HEADERS, "Referer": fund_url},
         )
         response.raise_for_status()
-        recent = parse_efunds_nav(response.text, code, "1y")
-        if recent and min(record.nav_date for record in recent) <= start_date:
-            return recent
-
-        response = self.client.get(
-            EFUNDS_ARCHIVE_NAV_URL.format(code=code),
-            headers={**BROWSER_HEADERS, "Referer": fund_url},
-        )
-        response.raise_for_status()
-        archive = parse_efunds_nav(response.text, code, "all")
-        by_date = {record.nav_date: record for record in (*archive, *recent)}
-        return [by_date[key] for key in sorted(by_date)]
+        return parse_efunds_nav(response.text, code, "1y")

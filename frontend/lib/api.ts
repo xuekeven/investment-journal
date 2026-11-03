@@ -22,6 +22,7 @@ import type {
   LimitNotificationConfigUpdate,
   LimitNotificationTestRequest,
   LimitNotificationScope,
+  TodayNotification,
   TradingVenue,
 } from "./types";
 
@@ -199,6 +200,10 @@ export function getLimitNotificationConfig(
 
 export function getMessageNotificationSettings(signal?: AbortSignal): Promise<LimitNotificationConfig[]> {
   return getJson<LimitNotificationConfig[]>("/limit-notifications/settings", signal);
+}
+
+export function getTodayNotifications(signal?: AbortSignal): Promise<TodayNotification[]> {
+  return getJson<TodayNotification[]>("/limit-notifications/today", signal);
 }
 
 export function updateMessageNotificationSettings(

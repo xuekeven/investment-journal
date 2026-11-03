@@ -42,10 +42,12 @@ from app.models import (
     LimitNotificationConfig,
     LimitNotificationConfigUpdate,
     LimitNotificationTestRequest,
+    TodayNotification,
 )
 from app.limit_notifications import (
     get_limit_notification_config,
     list_limit_notification_configs,
+    list_today_notifications,
     save_limit_notification_config,
     save_limit_notification_configs,
     send_test_limit_notification,
@@ -480,6 +482,14 @@ def start_sync_task(task: SyncTaskKey) -> dict[str, object]:
 )
 def all_limit_notification_configs(session: SessionDep) -> list[LimitNotificationConfig]:
     return list_limit_notification_configs(session)
+
+
+@app.get(
+    f"{settings.api_prefix}/limit-notifications/today",
+    response_model=list[TodayNotification],
+)
+def today_limit_notifications(session: SessionDep) -> list[TodayNotification]:
+    return list_today_notifications(session)
 
 
 @app.put(

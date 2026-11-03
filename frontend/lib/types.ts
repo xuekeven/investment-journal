@@ -45,6 +45,14 @@ export interface LimitNotificationTestRequest {
   weworkApp: string;
 }
 
+export interface TodayNotification {
+  deliveryKey: string;
+  scope: LimitNotificationScope;
+  occurredAt: string;
+  status: "sent" | "failed" | "sending" | "pending";
+  content: string;
+}
+
 export interface IndexSummary {
   id: string;
   name: string;

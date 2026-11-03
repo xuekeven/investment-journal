@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-import { getMessageNotificationSettings, testLimitNotification, updateMessageNotificationSettings } from "@/lib/api";
-import type { LimitNotificationConfig, LimitNotificationConfigUpdate, LimitNotificationScope } from "@/lib/types";
+import { getMessageNotificationSettings, getTodayNotifications, testLimitNotification, updateMessageNotificationSettings } from "@/lib/api";
+import type { LimitNotificationConfig, LimitNotificationConfigUpdate, LimitNotificationScope, TodayNotification } from "@/lib/types";
 import { CloseIcon } from "./icons";
 import { NoteSelect } from "./investment-notes";
 import { Switch } from "./switch";
@@ -14,6 +14,12 @@ const SCOPES: ReadonlyArray<{ value: LimitNotificationScope; label: string }> = 
 ];
 
 const VISIBLE_SCOPES = new Set<LimitNotificationScope>(SCOPES.map((item) => item.value));
+const DELIVERY_STATUS_LABELS: Record<TodayNotification["status"], string> = {
+  sent: "发送成功",
+  failed: "发送失败",
+  sending: "发送中",
+  pending: "待发送",
+};
 
 export function LimitNotificationDialog({ onClose }: LimitNotificationDialogProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -22,6 +28,9 @@ export function LimitNotificationDialog({ onClose }: LimitNotificationDialogProp
   const [weworkUserId, setWeworkUserId] = useState("XueKai");
   const [weworkApp, setWeworkApp] = useState("main");
   const [loading, setLoading] = useState(true);
+  const [todayNotifications, setTodayNotifications] = useState<TodayNotification[]>([]);
+  const [todayLoading, setTodayLoading] = useState(true);
+  const [todayError, setTodayError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testingRow, setTestingRow] = useState<string | null>(null);
   const [openDirection, setOpenDirection] = useState<LimitNotificationScope | null>(null);
@@ -46,6 +55,23 @@ export function LimitNotificationDialog({ onClose }: LimitNotificationDialogProp
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    function refreshToday() {
+      void getTodayNotifications(controller.signal)
+        .then((items) => { if (active) { setTodayNotifications(items); setTodayError(null); } })
+        .catch((reason: unknown) => {
+          if (!active || (reason instanceof DOMException && reason.name === "AbortError")) return;
+          setTodayError(reason instanceof Error ? reason.message : "无法读取今日提醒。");
+        })
+        .finally(() => { if (active) setTodayLoading(false); });
+    }
+    refreshToday();
+    const timer = window.setInterval(refreshToday, 60_000);
+    return () => { active = false; controller.abort(); window.clearInterval(timer); };
   }, []);
 
   useEffect(() => {
@@ -119,7 +145,7 @@ export function LimitNotificationDialog({ onClose }: LimitNotificationDialogProp
     try {
       const saved = await updateMessageNotificationSettings(payload());
       setConfigs(saved);
-      setMessage("消息提醒设置已保存。");
+      setMessage("提醒设置已保存。");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败。");
     } finally {
@@ -168,15 +194,16 @@ export function LimitNotificationDialog({ onClose }: LimitNotificationDialogProp
         <header className="comparison-header">
           <div>
             <span className="section-kicker">消息订阅</span>
-            <h2 id="limit-notification-title">消息提醒设置</h2>
+            <h2 id="limit-notification-title">消息提醒</h2>
           </div>
-          <button ref={closeButtonRef} className="icon-button" type="button" onClick={onClose} aria-label="关闭消息提醒设置">
+          <button ref={closeButtonRef} className="icon-button" type="button" onClick={onClose} aria-label="关闭消息提醒">
             <CloseIcon />
           </button>
         </header>
 
         {loading ? <div className="limit-notification-state">正在读取提醒配置…</div> : (
           <div className="limit-notification-content">
+            <h3 className="message-settings-title">提醒设置</h3>
             {configs.length > 0 && <div className="message-settings-matrix" role="group" aria-label="各类基金消息提醒">
               {SCOPES.map(({ value, label }) => {
                 const config = configs.find((item) => item.scope === value);
@@ -243,6 +270,22 @@ export function LimitNotificationDialog({ onClose }: LimitNotificationDialogProp
             </div>}
             {message && <p className="limit-form-message success">{message}</p>}
             {error && <p className="limit-form-message error">{error}</p>}
+            <section className="message-today" aria-labelledby="message-today-title">
+              <h3 id="message-today-title">今日提醒</h3>
+              {todayLoading ? <p className="message-today-state">正在读取今日提醒…</p> :
+                todayError ? <p className="message-today-state error">{todayError}</p> :
+                todayNotifications.length === 0 ? <p className="message-today-state">今天还没有符合提醒设置的消息。</p> :
+                <div className="message-today-list">
+                  {todayNotifications.map((item) => <article className="message-today-item" key={item.deliveryKey}>
+                    <div className="message-today-meta">
+                      <strong>{SCOPES.find((scope) => scope.value === item.scope)?.label ?? item.scope}</strong>
+                      <span className={"message-today-status " + item.status}>{DELIVERY_STATUS_LABELS[item.status]}</span>
+                      <time dateTime={item.occurredAt}>{new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit" }).format(new Date(item.occurredAt))}</time>
+                    </div>
+                    <pre>{item.content}</pre>
+                  </article>)}
+                </div>}
+            </section>
           </div>
         )}
 

@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import BytesIO
 from types import SimpleNamespace
@@ -134,7 +134,7 @@ def test_nav_query_uses_the_endpoint_page_limit() -> None:
     assert by_code["fundCode"] == "050025"
 
 
-def test_nav_fetch_splits_a_year_into_supported_date_windows() -> None:
+def test_nav_fetch_only_reads_recent_fifteen_days() -> None:
     requests: list[dict[str, str]] = []
 
     class Response:
@@ -158,17 +158,12 @@ def test_nav_fetch_splits_a_year_into_supported_date_windows() -> None:
         3201,
         "博时标普500ETF联接",
         date(2026, 8, 1),
-        lookback_days=400,
     )
 
     assert records == []
-    assert len(requests) == 9
-    assert requests[0]["startDate"] == "2025-06-27"
-    assert requests[-1]["endDate"] == "2026-08-01"
-    for previous, current in zip(requests, requests[1:], strict=False):
-        previous_end = date.fromisoformat(previous["endDate"])
-        current_start = date.fromisoformat(current["startDate"])
-        assert current_start == previous_end + timedelta(days=1)
+    assert len(requests) == 1
+    assert requests[0]["startDate"] == "2026-07-17"
+    assert requests[0]["endDate"] == "2026-08-01"
 
 
 def test_classifies_target_off_exchange_funds_and_excludes_variants() -> None:

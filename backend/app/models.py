@@ -94,6 +94,14 @@ class LimitNotificationTestRequest(ApiModel):
     wework_app: str = Field(default="main", min_length=1, max_length=64)
 
 
+class TodayNotification(ApiModel):
+    delivery_key: str
+    scope: LimitNotificationScope
+    occurred_at: datetime
+    status: Literal["sent", "failed", "sending", "pending"]
+    content: str
+
+
 class HealthResponse(ApiModel):
     status: str
     version: str

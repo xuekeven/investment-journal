@@ -55,6 +55,7 @@ EID_ADVANCED_SEARCH_URL = f"{EID_BASE_URL}/disclose/advanced_search_report.do"
 EID_SEARCH_META_URL = f"{EID_BASE_URL}/disclose/publicDailyReportSearchData.json"
 EID_NAV_URL = f"{EID_BASE_URL}/disclose/getPublicFundJZInfoMore.do"
 ASIA_SHANGHAI = ZoneInfo("Asia/Shanghai")
+NAV_LOOKBACK_DAYS = 15
 PRODUCT_SUMMARY_LABEL = "基金产品资料概要"
 QUARTERLY_REPORT_LABEL = "季度报告"
 logger = logging.getLogger(__name__)
@@ -1748,75 +1749,29 @@ def fetch_nav_records(
     name: str,
     end_date: date,
     *,
-    lookback_days: int = 45,
     fund_code: str = "",
 ) -> list[NavRecord]:
-    rows: list[dict[str, Any]] = []
-    window_start = end_date - timedelta(days=lookback_days)
-    while window_start <= end_date:
-        # The endpoint returns an empty result for a roughly one-year query,
-        # even when matching rows exist. Keep each request within the proven
-        # working recent-NAV range and merge the windows locally.
-        window_end = min(window_start + timedelta(days=45), end_date)
-        payload: dict[str, Any] = {}
-        for attempt in range(3):
-            response = client.get(
-                EID_NAV_URL,
-                params={
-                    "aoData": nav_query_data(
-                        name,
-                        window_start,
-                        window_end,
-                        fund_code=fund_code,
-                    )
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-            message = str(payload.get("message") or "")
-            if payload.get("success") is not False:
-                break
-            if "请求繁忙" not in message or attempt == 2:
-                raise RuntimeError(message or "EID NAV query failed")
-        rows.extend(payload.get("aaData") or [])
-        window_start = window_end + timedelta(days=1)
-    return parse_nav_rows(rows, fund_id)
-
-
-def nav_lookback_days(
-    session: Session,
-    product_id: int,
-    end_date: date,
-) -> int:
-    earliest = session.scalar(
-        select(NavDaily.nav_date)
-        .join(
-            FundShareClass,
-            FundShareClass.id == NavDaily.fund_share_class_id,
+    payload: dict[str, Any] = {}
+    for attempt in range(3):
+        response = client.get(
+            EID_NAV_URL,
+            params={
+                "aoData": nav_query_data(
+                    name,
+                    end_date - timedelta(days=NAV_LOOKBACK_DAYS),
+                    end_date,
+                    fund_code=fund_code,
+                )
+            },
         )
-        .where(FundShareClass.fund_product_id == product_id)
-        .order_by(NavDaily.nav_date)
-        .limit(1)
-    )
-    return 400 if earliest is None or earliest > end_date - timedelta(days=370) else 45
-
-
-def share_nav_lookback_days(
-    session: Session,
-    code: str,
-    end_date: date,
-) -> int:
-    earliest = session.scalar(
-        select(NavDaily.nav_date)
-        .join(
-            FundShareClass,
-            FundShareClass.id == NavDaily.fund_share_class_id,
-        )
-        .where(FundShareClass.code == code)
-        .order_by(NavDaily.nav_date)
-        .limit(1)
-    )
-    return 400 if earliest is None or earliest > end_date - timedelta(days=370) else 45
+        response.raise_for_status()
+        payload = response.json()
+        message = str(payload.get("message") or "")
+        if payload.get("success") is not False:
+            break
+        if "请求繁忙" not in message or attempt == 2:
+            raise RuntimeError(message or "EID NAV query failed")
+    return parse_nav_rows(payload.get("aaData") or [], fund_id)
 
 
 def recent_nav_share_codes(
@@ -2682,18 +2637,12 @@ def run_details_sync(
                             detail_target,
                             detail_structure,
                         )
-                        lookback_days = nav_lookback_days(
-                            session,
-                            stored_product.id,
-                            max_nav_date,
-                        )
                         query_name = detail.short_name or candidate.name
                         records = fetch_nav_records(
                             client,
                             fund_id,
                             query_name,
                             max_nav_date,
-                            lookback_days=lookback_days,
                         )
                         if (
                             not records
@@ -2705,7 +2654,6 @@ def run_details_sync(
                                 fund_id,
                                 candidate.name,
                                 max_nav_date,
-                                lookback_days=lookback_days,
                             )
                         if not records:
                             by_identity: dict[
@@ -2721,7 +2669,6 @@ def run_details_sync(
                                     fund_id,
                                     "",
                                     max_nav_date,
-                                    lookback_days=lookback_days,
                                     fund_code=share_code,
                                 ):
                                     by_identity[(record.code, record.nav_date)] = record
@@ -2753,18 +2700,11 @@ def run_details_sync(
                         for share in fallback_shares.values():
                             if share.currency != "美元":
                                 continue
-                            official_lookback = share_nav_lookback_days(
-                                session,
-                                share.code,
-                                max_nav_date,
-                            )
                             try:
                                 fallback_records = company_nav_fetcher.fetch(
                                     detail.manager,
                                     share.code,
-                                    max_nav_date - timedelta(
-                                        days=official_lookback
-                                    ),
+                                    max_nav_date - timedelta(days=NAV_LOOKBACK_DAYS),
                                     max_nav_date,
                                 )
                             except (httpx.HTTPError, RuntimeError, ValueError) as exc:
@@ -2810,9 +2750,11 @@ def run_details_sync(
                                 by_identity.values(),
                                 key=lambda item: (item.code, item.nav_date),
                             )
-                        if not records:
+                        if not records and not stored_shares_by_product.get(
+                            stored_product.id
+                        ):
                             raise RuntimeError(
-                                "no valid NAV rows from EID or official company sources"
+                                "no recent NAV rows or stored shares for product"
                             )
                         current_codes = {
                             candidate.code,
@@ -2824,6 +2766,13 @@ def run_details_sync(
                         summary_shares: dict[
                             str, tuple[SummaryShare, str]
                         ] = {}
+                        if not records:
+                            summary_shares.update(
+                                (code, (share, stored_product.source_url))
+                                for code, share in stored_shares_by_product.get(
+                                    stored_product.id, {}
+                                ).items()
+                            )
                         for discovered_share in current_announcement_shares(
                             announcement_shares, current_codes
                         ).values():

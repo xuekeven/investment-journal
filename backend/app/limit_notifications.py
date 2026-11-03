@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from hashlib import sha256
 from types import SimpleNamespace
@@ -8,7 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -24,10 +24,12 @@ from app.database_models import (
     SalesLimitHistory,
     UserFundTag,
 )
-from app.models import LimitNotificationConfig, LimitNotificationConfigUpdate, LimitNotificationTestRequest
+from app.models import LimitNotificationConfig, LimitNotificationConfigUpdate, LimitNotificationTestRequest, TodayNotification
 
 
 SINGLE_USER_ID = "default"
+DISPLAYED_NOTIFICATION_SCOPES = ("sp-500", "nasdaq-100")
+SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 INDEX_SCOPES = {"sp-500", "nasdaq-100", "other-qdii", "csi-500"}
 TAG_SCOPES = {"favorite", "holding", "recurring"}
 STATUS_LABELS = {"open": "开放申购", "limited": "限额申购", "suspended": "暂停申购"}
@@ -145,6 +147,66 @@ def list_limit_notification_configs(session: Session) -> list[LimitNotificationC
     ))
     by_scope = {row.scope_value: row for row in rows}
     return [_config_response(by_scope.get(scope), scope) for scope in SCOPE_LABELS]
+
+
+def list_today_notifications(
+    session: Session, *, now: datetime | None = None
+) -> list[TodayNotification]:
+    local_date = (now or datetime.now(UTC)).astimezone(SHANGHAI_TZ).date()
+    start = datetime.combine(local_date, time.min, tzinfo=SHANGHAI_TZ).astimezone(UTC)
+    end = datetime.combine(local_date + timedelta(days=1), time.min, tzinfo=SHANGHAI_TZ).astimezone(UTC)
+    rows = session.execute(
+        select(LimitNotificationOutbox, LimitNotificationSubscription.scope_value)
+        .join(
+            LimitNotificationSubscription,
+            LimitNotificationSubscription.id == LimitNotificationOutbox.subscription_id,
+        )
+        .where(
+            LimitNotificationSubscription.user_id == SINGLE_USER_ID,
+            LimitNotificationSubscription.scope_value.in_(DISPLAYED_NOTIFICATION_SCOPES),
+            or_(
+                and_(
+                    LimitNotificationOutbox.detected_at >= start,
+                    LimitNotificationOutbox.detected_at < end,
+                ),
+                and_(
+                    LimitNotificationOutbox.sent_at >= start,
+                    LimitNotificationOutbox.sent_at < end,
+                ),
+            ),
+        )
+        .order_by(
+            LimitNotificationOutbox.detected_at,
+            LimitNotificationOutbox.id,
+        )
+    ).all()
+    deliveries: dict[tuple[int, str], tuple[str, list[LimitNotificationOutbox]]] = {}
+    for event, scope in rows:
+        key = (event.subscription_id, event.delivery_key or f"event:{event.id}")
+        if key not in deliveries:
+            deliveries[key] = (scope, [])
+        deliveries[key][1].append(event)
+    return sorted(
+        (
+            TodayNotification(
+                delivery_key=delivery_key,
+                scope=scope,
+                occurred_at=max(
+                    event.sent_at or event.detected_at for event in events
+                ),
+                status=(
+                    "failed" if any(event.status == "failed" for event in events)
+                    else "sending" if any(event.status == "sending" for event in events)
+                    else "pending" if any(event.status == "pending" for event in events)
+                    else "sent"
+                ),
+                content=format_limit_message(events),
+            )
+            for (_, delivery_key), (scope, events) in deliveries.items()
+        ),
+        key=lambda item: item.occurred_at,
+        reverse=True,
+    )
 
 
 def save_limit_notification_configs(

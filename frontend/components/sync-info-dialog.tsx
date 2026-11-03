@@ -394,14 +394,14 @@ export function SyncInfoDialog({
         <header className="comparison-header">
           <div>
             <span className="section-kicker">数据说明</span>
-            <h2 id="sync-info-title">数据同步机制</h2>
+            <h2 id="sync-info-title">数据同步</h2>
           </div>
           <button
             ref={closeButtonRef}
             className="icon-button"
             type="button"
             onClick={onClose}
-            aria-label="关闭数据同步机制"
+            aria-label="关闭数据同步"
           >
             <CloseIcon />
           </button>

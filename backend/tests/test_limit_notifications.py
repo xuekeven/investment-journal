@@ -1,5 +1,5 @@
 from decimal import Decimal
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -145,3 +145,56 @@ def test_deviation_message_shows_value_threshold_and_quote_date() -> None:
     assert "基金偏离提醒" in message
     assert "偏离率：2.00%（高于 2.00% 提醒）" in message
     assert "行情日期：2026-10-23" in message
+
+
+def test_today_notifications_group_the_sent_message_and_use_shanghai_day() -> None:
+    sent_at = datetime(2026, 11, 2, 16, 5, tzinfo=UTC)
+    events = [
+        SimpleNamespace(
+            id=index,
+            subscription_id=7,
+            delivery_key="delivery-7",
+            detected_at=sent_at - timedelta(minutes=1),
+            sent_at=sent_at,
+            status="sent",
+            event_type="deviation",
+            fund_code=code,
+            fund_name="测试基金",
+            previous_state=None,
+            current_state={"deviation": -6.5, "threshold": -6.0, "direction": "below", "quote_date": "2026-11-02"},
+            effective_from=None,
+        )
+        for index, code in enumerate(("513500", "513650"), start=1)
+    ]
+    failed_event = SimpleNamespace(
+        id=3,
+        subscription_id=7,
+        delivery_key="delivery-failed",
+        detected_at=sent_at - timedelta(minutes=2),
+        sent_at=None,
+        status="failed",
+        event_type="deviation",
+        fund_code="159915",
+        fund_name="测试基金",
+        previous_state=None,
+        current_state={"deviation": -6.5, "threshold": -6.0, "direction": "below", "quote_date": "2026-11-02"},
+        effective_from=None,
+    )
+
+    class SentSession:
+        def execute(self, query: object) -> SimpleNamespace:
+            values = query.compile().params
+            dates = [value for value in values.values() if isinstance(value, datetime)]
+            assert set(dates) == {sent_at - timedelta(minutes=5), sent_at + timedelta(days=1) - timedelta(minutes=5)}
+            return SimpleNamespace(all=lambda: [(event, "sp-500") for event in (*events, failed_event)])
+
+    items = limit_notifications.list_today_notifications(SentSession(), now=sent_at)
+
+    assert len(items) == 2
+    by_delivery = {item.delivery_key: item for item in items}
+    assert by_delivery["delivery-7"].occurred_at == sent_at
+    assert by_delivery["delivery-7"].status == "sent"
+    assert by_delivery["delivery-7"].content == format_limit_message(events)
+    assert "共 2 项" in by_delivery["delivery-7"].content
+    assert by_delivery["delivery-failed"].status == "failed"
+    assert "159915" in by_delivery["delivery-failed"].content

@@ -60,6 +60,12 @@ def test_eid_nav_retries_busy_response() -> None:
 
     assert len(requests) == 2
     assert all(str(request.url).startswith(szse_details.EID_NAV_URL) for request in requests)
+    query = {
+        item["name"]: item["value"]
+        for item in json.loads(requests[0].url.params["aoData"])
+    }
+    assert query["startDate"] == "2026-08-06"
+    assert query["endDate"] == "2026-08-21"
     assert source_url == szse_details.EID_NAV_URL
     assert [(record.nav_date, record.unit_nav) for record in records] == [
         (date(2026, 8, 20), Decimal("1.6496"))
