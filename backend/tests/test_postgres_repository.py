@@ -18,7 +18,7 @@ from app.database_models import (
     NavDaily,
     SalesLimitHistory,
 )
-from app.models import FundTagType, InvestmentNoteCreate, KnowledgeArticleCreate
+from app.models import ContentOptionType, FundTagType, InvestmentNoteCreate, KnowledgeArticleCreate
 from app.repository import PostgresFundRepository
 
 
@@ -243,6 +243,7 @@ def test_postgres_repository_persists_tags_and_notes(repository) -> None:
 
 
 def test_postgres_repository_persists_knowledge_articles(repository) -> None:
+    repository.set_content_options(ContentOptionType.KNOWLEDGE_CATEGORY, ["债券"])
     article = repository.create_knowledge_article(
         KnowledgeArticleCreate(
             title="长期债券",

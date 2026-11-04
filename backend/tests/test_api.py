@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -6,6 +7,19 @@ from app.sync_jobs import SyncJobBusyError, sync_job_runner
 
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def frontend_dist(monkeypatch, tmp_path) -> None:
+    dist_dir = tmp_path / "dist"
+    assets_dir = dist_dir / "assets"
+    assets_dir.mkdir(parents=True)
+    (dist_dir / "index.html").write_text(
+        '<div id="root"></div><script type="module" src="/investment/assets/app.js"></script>',
+        encoding="utf-8",
+    )
+    (assets_dir / "app.js").write_text("export const ready = true;", encoding="utf-8")
+    monkeypatch.setattr("app.main.FRONTEND_DIST_DIR", dist_dir)
 
 
 def test_database_url_accepts_standard_environment_name(monkeypatch) -> None:
@@ -59,14 +73,14 @@ def test_frontend_rejects_path_traversal() -> None:
     assert "from fastapi import" not in response.text
 
 
-def test_frontend_serves_spa_fallback() -> None:
+def test_frontend_serves_spa_fallback(frontend_dist) -> None:
     response = client.get("/some/client/route")
     assert response.status_code == 200
     assert "<div id=\"root\"></div>" in response.text
     assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
 
 
-def test_frontend_serves_built_asset() -> None:
+def test_frontend_serves_built_asset(frontend_dist) -> None:
     index = client.get("/")
     asset_path = index.text.split('src="', 1)[1].split('"', 1)[0]
     response = client.get(asset_path.removeprefix("/investment"))

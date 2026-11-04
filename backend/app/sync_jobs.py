@@ -218,17 +218,6 @@ class SyncJobRunner:
                         self._tasks[script]["lastSucceededAt"] = finished_at
                     self._persist_locked()
         finally:
-            finished_at = datetime.now(UTC).isoformat()
-            with self._lock:
-                self._tasks[task].update(
-                    status="failed" if failed else "succeeded",
-                    finishedAt=finished_at,
-                )
-                if not failed:
-                    self._tasks[task]["lastSucceededAt"] = finished_at
-                self._active_job = None
-                self._current_script = None
-                self._persist_locked()
             try:
                 if history_id is not None:
                     try:
@@ -238,6 +227,17 @@ class SyncJobRunner:
                     except OSError:
                         pass
             finally:
+                finished_at = datetime.now(UTC).isoformat()
+                with self._lock:
+                    self._tasks[task].update(
+                        status="failed" if failed else "succeeded",
+                        finishedAt=finished_at,
+                    )
+                    if not failed:
+                        self._tasks[task]["lastSucceededAt"] = finished_at
+                    self._active_job = None
+                    self._current_script = None
+                    self._persist_locked()
                 release_process_lock(process_lock)
 
 
