@@ -812,7 +812,12 @@ export function ComparisonDashboard() {
                 type="button"
                 role="tab"
                 aria-selected={activeIndex === index.id}
-                onClick={() => changeIndex(index.id)}
+                onClick={(event) => {
+                  changeIndex(index.id);
+                  if (window.matchMedia("(max-width: 720px)").matches) {
+                    event.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                  }
+                }}
               >
                 <span>{index.shortName}</span>
                 <small>{index.region} · {index.fundCount} 个份额</small>

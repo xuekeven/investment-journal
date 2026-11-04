@@ -766,36 +766,43 @@ a { color: inherit; text-decoration: none; }
   .fund-result-summary { align-items: flex-start; flex-direction: column; gap: 4px; }
   .fund-pagination { align-items: flex-start; flex-direction: column; }
   .fund-pagination-buttons { justify-content: flex-start; }
-  .index-tabs { overflow-x: auto; grid-template-columns: repeat(4, minmax(150px, 1fr)); }
-  .index-tab { padding: 16px 10px; }
+  .index-tabs { overflow-x: auto; grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(136px, 42%); scroll-snap-type: x proximity; scroll-padding-inline: 14px; }
+  .index-tab { padding: 16px 10px; scroll-snap-align: start; }
   .toolbar { align-items: stretch; flex-direction: column; }
-  .toolbar-filters { width: 100%; position: relative; align-items: flex-start; gap: 8px; }
-  .segment { align-self: flex-start; }
-  .multi-filter-trigger { min-width: 116px; }
-  .mobile-sort { display: block; }
+  .toolbar-filters { width: 100%; position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 8px; }
+  .toolbar-filters .segment { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .toolbar-filters .segment button { min-width: 0; min-height: 38px; }
+  .toolbar-filters .multi-filter { min-width: 0; }
+  .toolbar-filters .multi-filter-trigger { width: 100%; min-width: 0; min-height: 44px; }
+  .toolbar-filters .tag-filter-checkbox { min-height: 44px; padding-inline: 10px; }
+  .mobile-sort { display: block; min-width: 0; }
+  .mobile-sort-trigger { width: 100%; min-height: 44px; }
   .search-box { width: 100%; }
   .table-wrap { display: none; }
   .fund-cards { display: grid; gap: 10px; }
   .fund-card { padding: 16px; border: 1px solid var(--line); border-radius: 15px; background: white; }
   .fund-card.selected { border-color: #79ae91; background: #f4faf6; box-shadow: inset 0 0 0 1px #79ae91; }
-  .card-head { display: grid; grid-template-columns: 22px 1fr; align-items: start; gap: 8px; }
+  .card-head { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 10px; }
+  .card-head .select-box { min-height: 28px; }
+  .card-head .select-box span { width: 22px; height: 22px; }
   .card-head > div { min-width: 0; display: flex; flex-direction: column; }
   .card-fund-name-row { display: flex; align-items: flex-start; gap: 6px; }
-  .card-head strong { font-size: 14px; }
-  .card-head span { margin-top: 5px; color: var(--muted); font-family: ui-monospace, monospace; font-size: 10px; }
+  .card-head strong { font-size: 15px; line-height: 1.45; }
+  .card-head > div > span { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
   .card-head .user-tag-list { margin-top: 7px; }
   .card-head .user-tag { margin-top: 0; font-family: inherit; }
-  .card-head .fund-edit-button { width: fit-content; margin-top: 9px; }
+  .card-head .fund-edit-button { width: fit-content; min-height: 36px; margin-top: 4px; }
   .card-primary { margin-top: 16px; padding: 14px 0; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid #e7ece9; border-bottom: 1px solid #e7ece9; }
   .card-primary > div { display: flex; flex-direction: column; gap: 6px; }
-  .card-primary small, .card-details span { color: var(--muted); font-size: 10px; }
+  .card-primary small, .card-details span { color: var(--muted); font-size: 12px; }
   .card-primary strong, .card-primary > div > span { font-size: 16px; }
   .card-details { padding-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
   .card-details > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .card-nav-value { display: flex; align-items: flex-end; flex-direction: column; gap: 4px; }
   .card-nav-value .subscription-tag { margin: 0; }
-  .card-details strong { font-size: 10px; }
-  .card-details small { color: #a3ada8; font-size: 8px; }
+  .card-details strong { font-size: 12px; }
+  .card-details small { color: #a3ada8; font-size: 10px; }
+  .card-details .deviation-chart-trigger { width: 32px; height: 32px; }
   .footer { margin-top: 36px; align-items: flex-start; flex-direction: column; gap: 18px; }
   .selection-bar { bottom: 12px; padding-left: 14px; }
   .selection-summary span { max-width: 120px; }
@@ -1061,8 +1068,12 @@ a { color: inherit; text-decoration: none; }
 
 @media (max-width: 720px) {
   .workspace-head { flex-direction: column; }
-  .workspace-actions { width: 100%; justify-content: flex-start; overflow-x: auto; flex-wrap: nowrap; }
-  .workspace-actions .tag-shortcuts { overflow-x: visible; }
+  .workspace-actions { width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 10px; overflow: visible; }
+  .workspace-actions .tag-shortcuts,
+  .workspace-info-actions { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .workspace-actions .tag-shortcuts { overflow: visible; }
+  .workspace-actions .tag-shortcut,
+  .workspace-info-actions .topbar-info-button { width: 100%; min-width: 0; height: 42px; padding-inline: 4px; white-space: nowrap; font-size: 12px; }
 }
 
 
