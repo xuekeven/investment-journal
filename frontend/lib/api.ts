@@ -24,6 +24,7 @@ import type {
   LimitNotificationScope,
   TodayNotification,
   TradingVenue,
+  UsdCnyRate,
 } from "./types";
 
 const API_BASE_URL =
@@ -142,6 +143,10 @@ export function getFunds(
 
 export function getTaggedFunds(tag: FundTag, signal?: AbortSignal): Promise<FundComparisonRow[]> {
   return getJson<FundComparisonRow[]>(`/tagged-funds/${tag}`, signal);
+}
+
+export function getUsdCnyRate(signal?: AbortSignal): Promise<UsdCnyRate> {
+  return getJson<UsdCnyRate>("/exchange-rates/usd-cny", signal);
 }
 
 export function getFundDeviationHistory(

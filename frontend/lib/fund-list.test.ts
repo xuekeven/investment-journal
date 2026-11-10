@@ -14,6 +14,7 @@ import {
 import type { FundComparisonRow } from "./types.ts";
 import {
   calculateHoldingProfitLoss,
+  calculateHoldingProfitTotal,
   calculateHoldingReturnRate,
   calculateRecurringInvestmentTotals,
   formatFundTagLabel,
@@ -394,6 +395,16 @@ test("holding profit uses the venue's current price and needs complete data", ()
   assert.equal(calculateHoldingProfitLoss(fund({ holdingAmount: 1, holdingCost: null })), null);
   assert.equal(calculateHoldingReturnRate(fund({ holdingAmount: 1, holdingCost: 0 })), null);
   assert.equal(calculateHoldingReturnRate(fund({ holdingAmount: 0, holdingCost: 1 })), null);
+});
+
+test("holding total converts USD profit to CNY and excludes incomplete positions", () => {
+  const cny = fund({ code: "000001", closePrice: 2, holdingCost: 1, holdingAmount: 10 });
+  const usd = fund({ code: "000002", currency: "美元", tradingVenue: "场外", nav: 0.8, holdingCost: 1, holdingAmount: 5 });
+  const missing = fund({ code: "000003", holdingCost: null, holdingAmount: 10 });
+  assert.deepEqual(calculateHoldingProfitTotal([cny, usd, missing], 7), {
+    total: 3, included: 2, omitted: 1, needsRate: true,
+  });
+  assert.equal(calculateHoldingProfitTotal([cny, usd], null).total, null);
 });
 
 test("removing one fund tag preserves the other tags and their values", () => {

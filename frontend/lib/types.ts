@@ -2,6 +2,12 @@ export type DataStatus = "verified" | "delayed" | "estimated" | "sample" | "unav
 export type TradingVenue = "场内" | "场外";
 export type FundTag = "favorite" | "holding" | "recurring";
 
+export interface UsdCnyRate {
+  rate: number;
+  rateDate: string;
+  source: "CFETS";
+}
+
 export interface FundBlacklistItem {
   id: number | null;
   value: string;

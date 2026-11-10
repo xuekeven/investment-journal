@@ -109,6 +109,12 @@ class HealthResponse(ApiModel):
     checked_at: datetime
 
 
+class UsdCnyRate(ApiModel):
+    rate: float
+    rate_date: date
+    source: str
+
+
 class IndexSummary(ApiModel):
     id: str
     name: str

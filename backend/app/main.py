@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.exchange_rates import ExchangeRateUnavailableError, get_usd_cny_rate
 from app.blacklist import get_fund_blacklist, save_fund_blacklist
 from app.assets import get_asset_config, get_asset_dashboard, save_asset_config, save_asset_snapshot
 from app.database import get_db_session
@@ -43,6 +44,7 @@ from app.models import (
     LimitNotificationConfigUpdate,
     LimitNotificationTestRequest,
     TodayNotification,
+    UsdCnyRate,
 )
 from app.limit_notifications import (
     get_limit_notification_config,
@@ -167,6 +169,14 @@ def list_index_funds(
 @app.get(f"{settings.api_prefix}/tagged-funds/{{tag}}", response_model=list[FundComparisonRow])
 def list_tagged_funds(tag: FundTagType, repository: RepositoryDep) -> list[FundComparisonRow]:
     return repository.list_tagged_funds(tag)
+
+
+@app.get(f"{settings.api_prefix}/exchange-rates/usd-cny", response_model=UsdCnyRate)
+def read_usd_cny_rate() -> UsdCnyRate:
+    try:
+        return get_usd_cny_rate()
+    except ExchangeRateUnavailableError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get(f"{settings.api_prefix}/comparisons", response_model=ComparisonResponse)

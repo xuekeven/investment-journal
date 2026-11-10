@@ -1971,7 +1971,21 @@ def sync_fund(
             raise RuntimeError(f"Share upsert failed for {code}")
         share_ids[code] = share_id
 
+    sync_nav_records(session, nav_records, share_ids, collected_at)
+    return product_id, share_ids, len(nav_records)
+
+
+def sync_nav_records(
+    session: Session,
+    nav_records: list[NavRecord],
+    share_ids: dict[str, int],
+    collected_at: datetime,
+) -> int:
+    synced = 0
     for record in nav_records:
+        share_id = share_ids.get(record.code)
+        if share_id is None:
+            continue
         values = {
             "unit_nav": record.unit_nav,
             "accumulated_nav": record.accumulated_nav,
@@ -1986,7 +2000,7 @@ def sync_fund(
             "quality_status": "verified",
         }
         nav_statement = insert(NavDaily).values(
-            fund_share_class_id=share_ids[record.code],
+            fund_share_class_id=share_id,
             nav_date=record.nav_date,
             **values,
         )
@@ -1995,7 +2009,8 @@ def sync_fund(
                 constraint="uq_nav_daily_share_date", set_=values
             )
         )
-    return product_id, share_ids, len(nav_records)
+        synced += 1
+    return synced
 
 
 def sync_scale_history(
@@ -2496,6 +2511,7 @@ def run_details_sync(
     limit: int | None = None,
     codes: tuple[str, ...] | None = None,
     family_id: str | None = None,
+    nav_only: bool = False,
 ) -> SyncStats:
     headers = {"User-Agent": "investment-journal/0.1"}
     transport = httpx.HTTPTransport(retries=2)
@@ -2517,11 +2533,12 @@ def run_details_sync(
         failures: list[str] = []
         warnings: list[str] = []
         with get_session_factory()() as session:
-            ensure_index_master_data(
-                session,
-                snapshot_time,
-                source_url=EID_SEARCH_META_URL,
-            )
+            if not nav_only:
+                ensure_index_master_data(
+                    session,
+                    snapshot_time,
+                    source_url=EID_SEARCH_META_URL,
+                )
             stored_products = list(
                 session.scalars(
                     select(FundProduct)
@@ -2535,7 +2552,9 @@ def run_details_sync(
             )
             share_codes_by_product: dict[int, list[str]] = {}
             stored_shares_by_product: dict[int, dict[str, SummaryShare]] = {}
+            stored_share_ids_by_product: dict[int, dict[str, int]] = {}
             for (
+                share_id,
                 product_id,
                 share_code,
                 display_name,
@@ -2544,6 +2563,7 @@ def run_details_sync(
                 currency_form,
             ) in session.execute(
                 select(
+                    FundShareClass.id,
                     FundShareClass.fund_product_id,
                     FundShareClass.code,
                     FundShareClass.display_name,
@@ -2564,6 +2584,9 @@ def run_details_sync(
                     currency,
                     currency_form,
                 )
+                stored_share_ids_by_product.setdefault(product_id, {})[
+                    share_code
+                ] = share_id
 
             requested_codes = {
                 code.strip().zfill(6) for code in (codes or ()) if code.strip()
@@ -2677,17 +2700,21 @@ def run_details_sync(
                                 key=lambda item: (item.code, item.nav_date),
                             )
                         announcements, announcement_warnings = (
-                            fetch_subscription_announcements(
-                                client, detail_html
-                            )
+                            ([], [])
+                            if nav_only
+                            else fetch_subscription_announcements(client, detail_html)
                         )
                         warnings.extend(
                             f"{candidate.code} {warning}"
                             for warning in announcement_warnings
                         )
-                        announcement_shares = discover_subscription_shares(
-                            announcements,
-                            detail.short_name or candidate.name,
+                        announcement_shares = (
+                            {}
+                            if nav_only
+                            else discover_subscription_shares(
+                                announcements,
+                                detail.short_name or candidate.name,
+                            )
                         )
                         fallback_shares = {
                             **stored_shares_by_product.get(stored_product.id, {}),
@@ -2756,41 +2783,49 @@ def run_details_sync(
                             raise RuntimeError(
                                 "no recent NAV rows or stored shares for product"
                             )
-                        current_codes = {
-                            candidate.code,
-                            *(record.code for record in records),
-                            *recent_nav_share_codes(
-                                session, stored_product.id, max_nav_date
-                            ),
-                        }
-                        summary_shares: dict[
-                            str, tuple[SummaryShare, str]
-                        ] = {}
-                        if not records:
-                            summary_shares.update(
-                                (code, (share, stored_product.source_url))
-                                for code, share in stored_shares_by_product.get(
-                                    stored_product.id, {}
-                                ).items()
+                        if nav_only:
+                            share_ids = stored_share_ids_by_product.get(
+                                stored_product.id, {}
                             )
-                        for discovered_share in current_announcement_shares(
-                            announcement_shares, current_codes
-                        ).values():
-                            merge_summary_share(
+                            synced_nav = sync_nav_records(
+                                session, records, share_ids, collected_at
+                            )
+                        else:
+                            current_codes = {
+                                candidate.code,
+                                *(record.code for record in records),
+                                *recent_nav_share_codes(
+                                    session, stored_product.id, max_nav_date
+                                ),
+                            }
+                            summary_shares: dict[
+                                str, tuple[SummaryShare, str]
+                            ] = {}
+                            if not records:
+                                summary_shares.update(
+                                    (code, (share, stored_product.source_url))
+                                    for code, share in stored_shares_by_product.get(
+                                        stored_product.id, {}
+                                    ).items()
+                                )
+                            for discovered_share in current_announcement_shares(
+                                announcement_shares, current_codes
+                            ).values():
+                                merge_summary_share(
+                                    summary_shares,
+                                    discovered_share[0],
+                                    discovered_share[1],
+                                )
+                            _, share_ids, synced_nav = sync_fund(
+                                session,
+                                candidate,
+                                detail,
+                                records,
                                 summary_shares,
-                                discovered_share[0],
-                                discovered_share[1],
+                                snapshot_time,
+                                collected_at,
+                                stored_product.benchmark_description,
                             )
-                        _, share_ids, synced_nav = sync_fund(
-                            session,
-                            candidate,
-                            detail,
-                            records,
-                            summary_shares,
-                            snapshot_time,
-                            collected_at,
-                            stored_product.benchmark_description,
-                        )
                         synced_return_metrics = 0
                         metric_sources = {
                             record.code: record.source_url
@@ -2810,47 +2845,48 @@ def run_details_sync(
                             )
                             synced_return_metrics += len(metrics)
 
-                        stored_shares = {
-                            share.code: SummaryShare(
-                                share.code,
-                                share.display_name,
-                                share.share_class,
-                                share.currency,
-                                share.currency_form,
-                            )
-                            for share in session.scalars(
-                                select(FundShareClass).where(
-                                    FundShareClass.id.in_(share_ids.values())
-                                )
-                            )
-                        }
-                        detail_url = f"{EID_DETAIL_URL}?fundId={fund_id}"
-                        states, state_warnings = resolve_subscription_states(
-                            announcements,
-                            stored_shares,
-                            subscription_date,
-                            detail_url,
-                        )
-                        warnings.extend(
-                            f"{candidate.code} {warning}"
-                            for warning in state_warnings
-                        )
                         synced_subscription_states = 0
-                        for state in states:
-                            share_id = share_ids.get(state.code)
-                            if share_id is None:
-                                continue
-                            sync_subscription_state(
-                                session,
-                                share_id,
-                                state,
-                                collected_at,
-                                authoritative=(
-                                    not announcement_warnings
-                                    and not state_warnings
-                                ),
+                        if not nav_only:
+                            stored_shares = {
+                                share.code: SummaryShare(
+                                    share.code,
+                                    share.display_name,
+                                    share.share_class,
+                                    share.currency,
+                                    share.currency_form,
+                                )
+                                for share in session.scalars(
+                                    select(FundShareClass).where(
+                                        FundShareClass.id.in_(share_ids.values())
+                                    )
+                                )
+                            }
+                            detail_url = f"{EID_DETAIL_URL}?fundId={fund_id}"
+                            states, state_warnings = resolve_subscription_states(
+                                announcements,
+                                stored_shares,
+                                subscription_date,
+                                detail_url,
                             )
-                            synced_subscription_states += 1
+                            warnings.extend(
+                                f"{candidate.code} {warning}"
+                                for warning in state_warnings
+                            )
+                            for state in states:
+                                share_id = share_ids.get(state.code)
+                                if share_id is None:
+                                    continue
+                                sync_subscription_state(
+                                    session,
+                                    share_id,
+                                    state,
+                                    collected_at,
+                                    authoritative=(
+                                        not announcement_warnings
+                                        and not state_warnings
+                                    ),
+                                )
+                                synced_subscription_states += 1
 
                     products += 1
                     shares += len(share_ids)
@@ -2868,7 +2904,7 @@ def run_details_sync(
                 session.rollback()
             else:
                 session.commit()
-    if not dry_run:
+    if not dry_run and not nav_only:
         try:
             dispatch_pending_notifications()
         except Exception as exc:

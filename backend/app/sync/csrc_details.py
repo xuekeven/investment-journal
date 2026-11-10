@@ -31,12 +31,18 @@ def main() -> None:
         choices=("sp-500", "nasdaq-100", "other-qdii", "csi-500"),
         help="sync only products in this fund category",
     )
+    parser.add_argument(
+        "--nav-only",
+        action="store_true",
+        help="sync NAV and return metrics only; skip announcements and subscription limits",
+    )
     args = parser.parse_args()
     stats = run_details_sync(
         dry_run=args.dry_run,
         limit=args.limit,
         codes=tuple(args.code or ()),
         family_id=args.family,
+        nav_only=args.nav_only,
     )
     action = "validated" if args.dry_run else "synced"
     print(

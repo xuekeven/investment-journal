@@ -56,7 +56,7 @@ grep -q '^0 9 \* \* 1 .*app\.sync\.szse_funds' "${FAKE_CRONTAB_STATE}"
 grep -q '^0 22 \* \* 1-5 .*app\.sync\.szse_details' "${FAKE_CRONTAB_STATE}"
 grep -q '^0 9 1 \* \* .*app\.sync\.csrc_funds' "${FAKE_CRONTAB_STATE}"
 grep -q '^0 9 \* \* 1-5 .*app\.sync\.csrc_details' "${FAKE_CRONTAB_STATE}"
-grep -q '^10 22 \* \* 1-5 .*app\.sync\.csrc_details' "${FAKE_CRONTAB_STATE}"
+grep -q '^10 22 \* \* 1-5 .*app\.sync\.csrc_details --nav-only' "${FAKE_CRONTAB_STATE}"
 [[ "$(grep -c 'flock -w 14400 .*backend/\.sync\.lock' "${FAKE_CRONTAB_STATE}")" == "7" ]]
 [[ "$(grep -c 'IFC_SYNC_METHOD=scheduled' "${FAKE_CRONTAB_STATE}")" == "7" ]]
 grep -q '/usr/local/bin/unrelated-backup' "${FAKE_CRONTAB_STATE}"

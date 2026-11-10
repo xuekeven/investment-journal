@@ -4,12 +4,14 @@ from io import BytesIO
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 import json
+import sys
 from urllib.parse import unquote
 
 from openpyxl import Workbook
 
-from app.sync import csrc_funds
+from app.sync import csrc_details, csrc_funds
 from app.sync.csrc_funds import (
+    NavRecord,
     ScaleRecord,
     classify_product,
     current_announcement_shares,
@@ -35,12 +37,42 @@ from app.sync.csrc_funds import (
     share_identity,
     should_retire_stale_catalog_products,
     SummaryShare,
+    SyncStats,
     snapshot_date_from_url,
     subscription_documents,
     subscription_as_of_date,
     SubscriptionState,
     sync_subscription_state,
+    sync_nav_records,
 )
+
+
+def test_script_f_nav_only_cli_option(monkeypatch, capsys) -> None:
+    received = {}
+
+    def fake_run_details_sync(**kwargs):
+        received.update(kwargs)
+        return SyncStats(1, 1, 1, 0, 0, 0, return_metrics=5)
+
+    monkeypatch.setattr(csrc_details, "run_details_sync", fake_run_details_sync)
+    monkeypatch.setattr(sys, "argv", ["csrc_details", "--nav-only"])
+    csrc_details.main()
+    assert received["nav_only"] is True
+    assert "0 subscription states" in capsys.readouterr().out
+
+
+def test_evening_nav_write_skips_new_unregistered_shares() -> None:
+    statements = []
+    session = SimpleNamespace(execute=statements.append)
+    records = [
+        NavRecord(code, code, None, "人民币", None, date(2026, 11, 10), Decimal("1.2"), None)
+        for code in ("017641", "999999")
+    ]
+    synced = sync_nav_records(
+        session, records, {"017641": 42}, datetime(2026, 11, 10, tzinfo=UTC)
+    )
+    assert synced == 1
+    assert len(statements) == 1
 
 
 def test_merge_summary_share_prefers_the_more_specific_official_name() -> None:

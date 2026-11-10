@@ -3,14 +3,16 @@ import { createPortal } from "react-dom";
 
 import { groupFundRowsByIndex } from "@/lib/fund-list";
 import { getFundDetailUrl } from "@/lib/fund-links";
+import { getUsdCnyRate } from "@/lib/api";
 import {
   calculateHoldingProfitLoss,
+  calculateHoldingProfitTotal,
   calculateHoldingReturnRate,
   calculateRecurringInvestmentTotals,
   formatFundTagLabel,
   holdingCurrentPrice,
 } from "@/lib/fund-tag-values";
-import type { FundComparisonRow, FundTag } from "@/lib/types";
+import type { FundComparisonRow, FundTag, UsdCnyRate } from "@/lib/types";
 import { FUND_TAG_META } from "./fund-tag-meta";
 import { CloseIcon, TrashIcon } from "./icons";
 import { SubscriptionTags } from "./subscription-tags";
@@ -63,6 +65,36 @@ function RecurringTotal({
   );
 }
 
+function HoldingTotal({
+  funds,
+  rate,
+  rateLoading,
+  position,
+}: {
+  funds: FundComparisonRow[];
+  rate: UsdCnyRate | null;
+  rateLoading: boolean;
+  position: (fund: FundComparisonRow) => { amount: number | null; cost: number | null };
+}) {
+  const { total, included, omitted, needsRate } = calculateHoldingProfitTotal(
+    funds, rate?.rate ?? null, position,
+  );
+  const title = [
+    `已计算 ${included} 个基金份额${omitted ? `，另有 ${omitted} 个缺少持有份额、成本或现价` : ""}。`,
+    needsRate && rate
+      ? `美元盈亏按中国外汇交易中心 ${rate.rateDate} 中间价换算：1 美元 = ${rate.rate.toFixed(4)} 人民币。`
+      : "",
+  ].filter(Boolean).join(" ");
+  const value = total === null
+    ? (needsRate && included > 0 ? (rateLoading ? "汇率加载中…" : "汇率暂不可用") : "—")
+    : `¥${total > 0 ? "+" : total < 0 ? "-" : ""}${profitFormatter.format(Math.abs(total))}`;
+  return (
+    <span className={`tagged-holding-total ${total === null ? "" : total > 0 ? "positive" : total < 0 ? "negative" : ""}`} title={title}>
+      {"，合计盈亏 "}<strong>{value}</strong>
+    </span>
+  );
+}
+
 export function TaggedFundsDialog({
   tag,
   funds,
@@ -81,8 +113,34 @@ export function TaggedFundsDialog({
   const [draftCosts, setDraftCosts] = useState<Record<string, string>>({});
   const [removedCodes, setRemovedCodes] = useState<Set<string>>(() => new Set());
   const [editError, setEditError] = useState<string | null>(null);
+  const [usdCnyRate, setUsdCnyRate] = useState<UsdCnyRate | null>(null);
+  const [rateLoading, setRateLoading] = useState(true);
   const visibleFunds = editing ? funds.filter((fund) => !removedCodes.has(fund.code)) : funds;
   const groups = groupFundRowsByIndex(visibleFunds);
+
+  function holdingPosition(fund: FundComparisonRow) {
+    if (!editing) return { amount: fund.holdingAmount, cost: fund.holdingCost };
+    const amountDraft = draftAmounts[fund.code]?.trim();
+    const costDraft = draftCosts[fund.code]?.trim();
+    return {
+      amount: amountDraft ? Number(amountDraft) : null,
+      cost: costDraft ? Number(costDraft) : null,
+    };
+  }
+
+  useEffect(() => {
+    if (tag !== "holding" || !funds.some((fund) => fund.currency === "美元")) return;
+    const controller = new AbortController();
+    void getUsdCnyRate(controller.signal)
+      .then((rate) => setUsdCnyRate(rate))
+      .catch(() => {
+        if (!controller.signal.aborted) setUsdCnyRate(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRateLoading(false);
+      });
+    return () => controller.abort();
+  }, [tag, funds]);
 
   function beginEditing() {
     setDraftAmounts(Object.fromEntries(funds.map((fund) => {
@@ -232,6 +290,9 @@ export function TaggedFundsDialog({
                 {tag === "recurring" ? (
                   <>，<RecurringTotal funds={visibleFunds} prefix="合计定投" /></>
                 ) : null}
+                {tag === "holding" ? (
+                  <HoldingTotal funds={visibleFunds} rate={usdCnyRate} rateLoading={rateLoading} position={holdingPosition} />
+                ) : null}
               </p>
               {editError ? <p className="tagged-amount-error" role="alert">{editError}</p> : null}
               {editing && visibleFunds.length === 0 ? <p className="tagged-edit-empty">保存后将移除这些基金。</p> : null}
@@ -241,7 +302,12 @@ export function TaggedFundsDialog({
                     <header className="tagged-funds-group-header">
                       <div>
                         <h3>{indexNames[group.indexId] ?? group.indexId}</h3>
-                        <span>{group.funds.length} 个基金份额</span>
+                        <span>
+                          {group.funds.length} 个基金份额
+                          {tag === "holding" ? (
+                            <HoldingTotal funds={group.funds} rate={usdCnyRate} rateLoading={rateLoading} position={holdingPosition} />
+                          ) : null}
+                        </span>
                         {tag === "recurring" ? <RecurringTotal funds={group.funds} /> : null}
                       </div>
                     </header>

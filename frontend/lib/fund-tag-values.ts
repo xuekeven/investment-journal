@@ -20,6 +20,36 @@ export function calculateHoldingProfitLoss(
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
+export function calculateHoldingProfitTotal(
+  funds: FundComparisonRow[],
+  usdCnyRate: number | null,
+  position: (fund: FundComparisonRow) => { amount: number | null; cost: number | null }
+    = (fund) => ({ amount: fund.holdingAmount, cost: fund.holdingCost }),
+): { total: number | null; included: number; omitted: number; needsRate: boolean } {
+  let cnyProfit = 0;
+  let usdProfit = 0;
+  let included = 0;
+  for (const fund of funds) {
+    const { amount, cost } = position(fund);
+    const profit = calculateHoldingProfitLoss(fund, amount, cost);
+    if (profit === null) continue;
+    if (fund.currency === "美元") usdProfit += profit;
+    else cnyProfit += profit;
+    included += 1;
+  }
+  const needsRate = usdProfit !== 0;
+  if (included === 0 || (needsRate && (usdCnyRate === null || !Number.isFinite(usdCnyRate) || usdCnyRate <= 0))) {
+    return { total: null, included, omitted: funds.length - included, needsRate };
+  }
+  const rounded = Math.round((cnyProfit + usdProfit * (usdCnyRate ?? 1)) * 100) / 100;
+  return {
+    total: Object.is(rounded, -0) ? 0 : rounded,
+    included,
+    omitted: funds.length - included,
+    needsRate,
+  };
+}
+
 export function calculateHoldingReturnRate(
   fund: FundComparisonRow,
   amount = fund.holdingAmount,
